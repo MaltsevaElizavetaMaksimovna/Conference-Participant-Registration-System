@@ -15,7 +15,7 @@ export default class UserService {
         return $api.post<UserData>(`users/${userId}/manual-register`, {})
     }
 
-    static async updateUser(userId: string, patch: Partial<UserData>): Promise<AxiosResponse<UserData>> {
+    static async updateUser(userId: string, patch: UserData): Promise<AxiosResponse<UserData>> {
         return  $api.patch(`users/${userId}`, patch)
     }
 
@@ -25,5 +25,9 @@ export default class UserService {
 
     static async fillUsersList(data: CreateUserRequest[]): Promise<AxiosResponse<UserData[]>> {
         return $api.post<UserData[]>('/users/addFromFile', data, {})
+    }
+
+    static async getUsers(): Promise<AxiosResponse<UserData[]>> {
+        return $api.get<UserData[]>('/users/getUsers', {});
     }
 }

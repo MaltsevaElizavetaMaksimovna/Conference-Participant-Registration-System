@@ -1,23 +1,22 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
 import {useCallback, useRef} from "react";
 import {type IDetectedBarcode, Scanner} from '@yudiel/react-qr-scanner';
-import {useAppDispatch} from "~/hooks/redux";
+import {useAppDispatch, useAppSelector} from "~/hooks/redux";
 import {findUser} from "~/store/reducers/ScanSlice";
 
 export const ScanFrame = () => {
-    const hasScannedRef = useRef<boolean>(false);
     const dispatch = useAppDispatch();
+    const {status} = useAppSelector(state => state.scanReducer);
 
     const handleScanning = useCallback(async (result: IDetectedBarcode[]) => {
-        if (!result.length || hasScannedRef.current) return
-        hasScannedRef.current = true;
+        if (!result.length || status === 'scanning') return
         const userCode = result[0].rawValue
         try {
             await dispatch(findUser(userCode)).unwrap()
         } catch (e) {
             console.error(e);
         }
-    }, [dispatch]);
+    }, [dispatch, status]);
 
     return (
             <TerminalBlock sectionTitle={"Терминал · экран сканирования"}>

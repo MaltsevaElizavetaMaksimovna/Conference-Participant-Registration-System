@@ -5,13 +5,13 @@ import type {Errors} from "~/models/response/Errors";
 import {parseError} from "~/utils/ParseError";
 
 export interface ScanState {
-    status: 'scanning' | 'loading' | 'error' | 'confirm' | 'printing'
+    status: 'scanning' | 'loading' | 'error' | 'confirm' | 'printing' | 'finished'
     user?: UserData
     error?: Errors
 }
 
 const initialState: ScanState = {
-    status: 'scanning',
+    status: 'confirm',
     user: {
         id: '12312',
         status: "unregistered",
@@ -40,13 +40,12 @@ export const completeRegistration = createAsyncThunk(
     'scan/completeRegistration',
     async (userId: string, {rejectWithValue}) => {
         try {
-            return await UserService.completeRegistration(userId)
-        }
-        catch (e) {
+            const response = await UserService.completeRegistration(userId)
+            return response.data
+        } catch (e) {
             return rejectWithValue(parseError(e))
         }
     }
-
 )
 
 export const scanSlice = createSlice({
@@ -58,7 +57,7 @@ export const scanSlice = createSlice({
             state.error = undefined
             state.user = undefined
         },
-        flagMismatch: (state, action:PayloadAction<Errors>) => {
+        flagMismatch: (state, action: PayloadAction<Errors>) => {
             state.status = 'error'
             state.error = action.payload
         }
@@ -68,7 +67,10 @@ export const scanSlice = createSlice({
             if (action.payload.status == 'registered') {
                 state.status = 'error'
                 state.user = action.payload
-                state.error = {message: 'Вы уже зарегистрированы', errorType: 'alreadyRegistered'}
+                state.error = {
+                    message: `Вы уже зарегистрированы (${action.payload.registrationDate}). Если вы не получили бейдж — обратитесь к стойке регистрации`,
+                    errorType: 'alreadyRegistered'
+                }
                 return;
             }
             state.status = 'confirm'
@@ -82,7 +84,8 @@ export const scanSlice = createSlice({
             state.error = action.payload as Errors
         })
 
-        builder.addCase(completeRegistration.fulfilled, (state) => {
+        builder.addCase(completeRegistration.fulfilled, (state, action) => {
+            state.user = action.payload
             state.status = 'printing'
         })
         builder.addCase(completeRegistration.pending, (state) => {

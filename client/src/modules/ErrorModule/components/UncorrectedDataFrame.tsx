@@ -1,14 +1,10 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
 import {scanSlice} from "~/store/reducers/ScanSlice";
 import {useAppDispatch} from "~/hooks/redux";
-import {useEffect} from "react";
-import {END_RESET_TIMEOUT} from "~/config/consts";
-import {useAutoReset} from "~/hooks/useAuroReset";
 
 export const UncorrectedDataFrame = () => {
     const {resetStatus} = scanSlice.actions
     const dispatch = useAppDispatch()
-    useAutoReset(END_RESET_TIMEOUT)
 
     function handleSubmit() {
         dispatch(resetStatus())
