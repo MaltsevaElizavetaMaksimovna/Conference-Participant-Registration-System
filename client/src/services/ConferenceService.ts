@@ -1,4 +1,4 @@
-import $api from "~/http";
+import $api from "~/http/api";
 import type {AxiosResponse} from "axios";
 import type {Conference, ConferenceTemplates} from "~/store/reducers/ConferenceSlice";
 

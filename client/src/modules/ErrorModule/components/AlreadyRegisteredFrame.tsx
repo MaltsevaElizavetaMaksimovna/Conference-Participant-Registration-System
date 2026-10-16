@@ -1,5 +1,5 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
-import type {UserData} from "~/models/response/UserData";
+import type {UserData} from "~/models/UserData";
 
 
 interface AlreadyRegisteredFrameProps {

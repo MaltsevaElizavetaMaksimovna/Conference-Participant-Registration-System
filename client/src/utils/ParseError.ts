@@ -1,5 +1,5 @@
 import axios from "axios";
-import type {Errors} from "~/models/response/Errors";
+import type {Errors} from "~/models/Errors";
 
 
 export function parseError(e: unknown): Errors {
@@ -8,7 +8,7 @@ export function parseError(e: unknown): Errors {
             return {
                 errorType: "networkError",
                 message: 'Не удалось связаться с сервером',
-                isBusinessError: false,
+                kind: 'system',
             }
         }
         const {status, data} = e.response
@@ -18,14 +18,22 @@ export function parseError(e: unknown): Errors {
                 return {
                     errorType: 'userNotFound',
                     message: serverMessage ?? 'Пользователь не найден',
-                    isBusinessError: true,
+                    kind: 'business',
+                    statusCode: status
+                }
+            case 409:
+                return  {
+                    errorType: 'alreadyRegistered',
+                    message: serverMessage ?? 'Вы уже зарегистрированы',
+                    kind: 'business',
+                    statusCode: status
                 }
             default:
                 return {
                     errorType: "serverError",
                     statusCode: e.response.status,
                     message: e.response.data?.message ?? 'Ошибка сервера',
-                    isBusinessError: false,
+                    kind: 'system',
                 }
         }
     }
@@ -33,12 +41,12 @@ export function parseError(e: unknown): Errors {
         return {
             message: e.message,
             errorType: 'unknownError',
-            isBusinessError: false,
+            kind: 'system',
         }
     }
     return {
         message: 'Неизвестная ошибка',
         errorType: 'unknownError',
-        isBusinessError: false,
+        kind: 'system',
     }
 }

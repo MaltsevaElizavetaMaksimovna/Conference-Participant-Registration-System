@@ -2,7 +2,7 @@ import {createAsyncThunk, createSlice, type PayloadAction} from "@reduxjs/toolki
 import type {AdminTabsModel} from "~/models/panels/AdminTabsModel";
 import type {CreateUserRequest} from "~/models/CreateUserRequest";
 import UserService from "~/services/UserService";
-import type {UserData} from "~/models/response/UserData";
+import type {UserData} from "~/models/UserData";
 import type {RegisteredUsersStats} from "~/models/panels/RegisteredUsersStats";
 
 interface AdminState {

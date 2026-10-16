@@ -17,12 +17,3 @@ export const parser = createStringCSVParser({
     ]
 })
 
-
-
-// export const toExcelUserModel = (record: Record<keyof ExcelUserModel,string>): ExcelUserModel => {
-//     const id  = Number(record['id'])
-//     return {
-//         ...record,
-//         id
-//     }
-// }

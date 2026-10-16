@@ -19,9 +19,15 @@ interface AddUsersModalProps {
 }
 
 
-export const AddUsersModal = ({setIsModalOpen, setIsLoading, userForm, setUserForm, setWasValidated}: AddUsersModalProps) => {
+export const AddUsersModal = ({
+                                  setIsModalOpen,
+                                  setIsLoading,
+                                  userForm,
+                                  setUserForm,
+                                  setWasValidated
+                              }: AddUsersModalProps) => {
     const dispatch = useAppDispatch();
-    const [errors, setErrors] = useState<{firstName?: boolean, lastName?: boolean}>({});
+    const [errors, setErrors] = useState<{ firstName?: boolean, lastName?: boolean }>({});
 
     function handleCloseModal() {
         setIsModalOpen(false);
@@ -33,6 +39,30 @@ export const AddUsersModal = ({setIsModalOpen, setIsLoading, userForm, setUserFo
         if (!userForm.lastName?.trim()) fields.lastName = true;
         setErrors(fields);
         return Object.keys(fields).length === 0;
+    }
+
+    async function handleCsv(file: File, cacheKey: string) {
+        const csv = await file.text()
+        const userList: ExcelUserModel[] = []
+        for await (const user of parser.parse(csv)) {
+            userList.push(user)
+        }
+        const fixedUserList = toCreateUserRequestParser(userList.slice(1)) // csv-parser не хочет пропускать строку с заголовками
+        setCache(cacheKey, fixedUserList)
+        dispatch(fillUsersList(fixedUserList))
+        setIsModalOpen(false);
+        return
+    }
+
+    async function handleXlsx(file: File, cacheKey: string) {
+        const {objects, errors} = await readSheet(file, {schema})
+        if (objects) {
+            const fixedObjects = toCreateUserRequestParser(objects)
+            setCache(cacheKey, fixedObjects)
+            dispatch(fillUsersList(fixedObjects))
+            setIsModalOpen(false);
+
+        }
     }
 
     async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -50,34 +80,18 @@ export const AddUsersModal = ({setIsModalOpen, setIsLoading, userForm, setUserFo
                 return
             }
 
-            if (e.target.files[0].name.toLowerCase().endsWith('.csv')) {
-                const csv = await file.text()
-                const userList: ExcelUserModel[] = []
-                for await (const user of parser.parse(csv)) {
-                    userList.push(user)
-                }
-                const fixedUserList = toCreateUserRequestParser(userList.slice(1)) // csv-parser не хочет пропускать строку с заголовками
-                setCache(cacheKey, fixedUserList)
-                dispatch(fillUsersList(fixedUserList))
-                setIsModalOpen(false);
-                return
-            }
-
-            const {objects, errors} = await readSheet(e.target.files[0], {schema})
-            if (objects) {
-                const fixedObjects = toCreateUserRequestParser(objects)
-                setCache(cacheKey, fixedObjects)
-                dispatch(fillUsersList(fixedObjects))
-                setIsModalOpen(false);
-
+            if (file.name.toLowerCase().endsWith('.csv')) {
+                await handleCsv(file, cacheKey)
+            } else if (file.name.toLowerCase().endsWith('.xlsx')) {
+                await handleXlsx(file, cacheKey)
+            } else {
+                throw new Error("Invalid file format");
             }
         } catch (e) {
             console.error(e)
         } finally {
             setIsLoading(false);
         }
-
-
     }
 
     const handleFormChange = (field: keyof CreateUserRequest) =>

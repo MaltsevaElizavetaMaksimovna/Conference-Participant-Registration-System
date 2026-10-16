@@ -1,7 +1,7 @@
 import {createAsyncThunk, createSlice, type PayloadAction} from "@reduxjs/toolkit";
-import type {UserData} from "~/models/response/UserData";
+import type {UserData} from "~/models/UserData";
 import UserService from "~/services/UserService";
-import type {Errors} from "~/models/response/Errors";
+import type {Errors} from "~/models/Errors";
 import {parseError} from "~/utils/ParseError";
 
 export interface ScanState {
@@ -11,7 +11,7 @@ export interface ScanState {
 }
 
 const initialState: ScanState = {
-    status: 'scanning',
+    status: 'confirm',
     user: {
         id: '12312',
         status: "unregistered",
@@ -71,12 +71,13 @@ export const scanSlice = createSlice({
     },
     extraReducers: (builder) => {
         builder.addCase(findUser.fulfilled, (state, action) => {
-            if (action.payload.status == 'registered') {
+            if (action.payload.status == 'registered' || action.payload.status == 'registeredWithoutLabel') {
                 state.status = 'error'
                 state.user = action.payload
                 state.error = {
                     message: `Вы уже зарегистрированы (${action.payload.registrationDate}). Если вы не получили бейдж — обратитесь к стойке регистрации`,
-                    errorType: 'alreadyRegistered'
+                    errorType: 'alreadyRegistered',
+                    kind: 'business'
                 }
                 return;
             }

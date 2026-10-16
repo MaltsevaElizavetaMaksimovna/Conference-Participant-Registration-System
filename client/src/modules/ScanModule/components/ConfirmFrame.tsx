@@ -1,9 +1,7 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
-import type {UserData} from "~/models/response/UserData";
+import type {UserData} from "~/models/UserData";
 import {useAppDispatch} from "~/hooks/redux";
 import {completeRegistration, scanSlice} from "~/store/reducers/ScanSlice";
-import {AUTO_RESET_TIMEOUT} from "~/config/consts";
-import {useAutoReset} from "~/hooks/useAuroReset";
 
 interface confirmFrameProps {
     userData: UserData;
@@ -11,12 +9,12 @@ interface confirmFrameProps {
 export const ConfirmFrame = ({userData}: confirmFrameProps) => {
     const {flagMismatch} = scanSlice.actions
     const dispatch = useAppDispatch();
-    useAutoReset(AUTO_RESET_TIMEOUT)
 
      function handleReject() {
         dispatch(flagMismatch({
                 errorType: "uncorrectedData",
                 message: 'Данные пользователя неверны',
+                kind: "business"
             }
         ))
     }

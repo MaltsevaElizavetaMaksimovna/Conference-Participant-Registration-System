@@ -1,5 +1,5 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
-import type {Errors} from "~/models/response/Errors";
+import type {Errors} from "~/models/Errors";
 
 interface ServerErrorFrameProps {
     error: Errors;

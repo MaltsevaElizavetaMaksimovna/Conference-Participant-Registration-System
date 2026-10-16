@@ -1,7 +1,7 @@
 import {createAsyncThunk, createSlice} from "@reduxjs/toolkit";
 import ConferenceService from "~/services/ConferenceService";
 import {parseError} from "~/utils/ParseError";
-import type {Errors} from "~/models/response/Errors";
+import type {Errors} from "~/models/Errors";
 
 export type BadgeType = 'without' | 'one-sided' | 'two-sided'
 

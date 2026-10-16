@@ -1,5 +1,5 @@
-import $api from "~/http";
-import type {UserData} from "~/models/response/UserData";
+import $api from "~/http/api";
+import type {UserData} from "~/models/UserData";
 import type {AxiosResponse} from "axios";
 import type {CreateUserRequest} from "~/models/CreateUserRequest";
 

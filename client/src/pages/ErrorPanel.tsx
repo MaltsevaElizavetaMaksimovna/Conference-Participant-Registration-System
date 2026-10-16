@@ -7,7 +7,7 @@ import {
     UnknownErrorFrame,
     UserNotFoundFrame
 } from "~/modules/ErrorModule";
-import {PrintError} from "~/modules/ErrorModule/components/PrintError";
+import {PrintErrorFrame} from "~/modules/ErrorModule/components/PrintErrorFrame";
 
 
 interface ErrorPanelProps {
@@ -27,7 +27,7 @@ export const ErrorPanel = ({scanState}: ErrorPanelProps) => {
             )
         case 'printError':
             return (
-                <PrintError/>
+                <PrintErrorFrame/>
             )
         case 'serverError':
             return (

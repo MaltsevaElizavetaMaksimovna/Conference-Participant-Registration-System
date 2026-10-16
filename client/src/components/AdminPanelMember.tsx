@@ -1,4 +1,4 @@
-import type {UserData} from "~/models/response/UserData";
+import type {UserData} from "~/models/UserData";
 
 interface AdminPanelMemberProps {
     user: UserData

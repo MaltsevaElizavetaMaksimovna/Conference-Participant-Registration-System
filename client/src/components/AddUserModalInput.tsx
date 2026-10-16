@@ -1,4 +1,4 @@
-import React, {useState} from "react";
+import React from "react";
 
 interface AddUserModalInputProps {
     placeholder: string;
@@ -7,7 +7,7 @@ interface AddUserModalInputProps {
     error?: boolean
 }
 
-export const AddUserModalInput = ({placeholder, handleFormChange, value, error}: AddUserModalInputProps) => {
+export const AddUserModalInput = ({placeholder, handleFormChange, value = '', error}: AddUserModalInputProps) => {
 
     return (
         <input

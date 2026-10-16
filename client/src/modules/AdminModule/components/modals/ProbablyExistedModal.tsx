@@ -3,6 +3,7 @@ import {addUser} from "~/store/reducers/AdminSlice";
 import {useAppDispatch, useAppSelector} from "~/hooks/redux";
 import type {CreateUserRequest} from "~/models/CreateUserRequest";
 import {ProbablyExistedMember} from "~/components/ProbablyExistedMember";
+import {searchUsers} from "~/utils/searchUsers";
 
 interface ProbablyExistedModalProps {
     setIsModalOpen: (isOpen: boolean) => void;
@@ -45,13 +46,7 @@ export const ProbablyExistedModal = ({
 
     const filteredUsers = useMemo(() => {
         const query = `${userForm.lastName} ${userForm.firstName} ${userForm.surname || ''}`.trim().toLowerCase();
-        if (!query) return userList
-
-        const words = query.split(' ')
-        return userList.filter(user => {
-            const fullName = `${user.lastName} ${user.firstName} ${user.surname || ''}`.toLowerCase();
-            return words.every((word) => fullName.includes(word));
-        })
+        return searchUsers(userList, query)
     }, [userList, userForm.lastName, userForm.firstName, userForm.surname])
 
     return (

@@ -6,8 +6,6 @@ import {adminSlice, fetchUsers} from "~/store/reducers/AdminSlice";
 import {
     conferenceSlice,
     fetchConferenceSettings,
-    fetchTemplates,
-    updateSettings
 } from "~/store/reducers/ConferenceSlice";
 
 const {resetStatus, flagMismatch, finishWithoutPrinting, errorWhileFetchingConference} = scanSlice.actions;
@@ -20,7 +18,7 @@ startAppListening({
         const isOnFinish = currentState.scanReducer.status === 'error' || currentState.scanReducer.status === 'finished'
         if (isFalseTriggered || !isOnFinish) return false
 
-        return !!currentState.scanReducer.error?.isBusinessError;
+        return currentState.scanReducer.error?.kind == 'business';
     },
     effect: async (_, api) => {
         api.cancelActiveListeners()
@@ -77,23 +75,16 @@ startAppListening({
 startAppListening({
     actionCreator: terminalMounted,
     effect: async (_, api) => {
-        const MAX_RETRIES = 3;
-        const BASE_DELAY = 2_000;
+        api.cancelActiveListeners()
 
         if (api.getState().conferenceReducer.conference !== null) return;
 
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                await api.dispatch(fetchConferenceSettings()).unwrap();
-                return;
-            } catch {
-                if (attempt < MAX_RETRIES) {
-                    await api.delay(BASE_DELAY * attempt);
-                }
-            }
+        const result = await api.dispatch(fetchConferenceSettings())
 
+        if (fetchConferenceSettings.rejected.match(result)) {
+            api.dispatch(errorWhileFetchingConference(api.getState().conferenceReducer.error!))
         }
-        api.dispatch(errorWhileFetchingConference(api.getState().conferenceReducer.error!))
+
     }
 })
 
@@ -109,6 +100,17 @@ startAppListening({
             if (fetchConferenceSettings.fulfilled.match(result)) {
                 return;
             }
+        }
+    },
+});
+
+startAppListening({
+    actionCreator: fetchConferenceSettings.fulfilled,
+    effect: (_, api) => {
+        const status = api.getState().scanReducer.status;
+
+        if (status === 'error') {
+            api.dispatch(resetStatus());
         }
     },
 });

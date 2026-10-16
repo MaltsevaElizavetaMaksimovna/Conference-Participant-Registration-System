@@ -1,5 +1,5 @@
 import {AdminLayout} from "~/modules/AdminModule/components/AdminLayout";
-import React, {useMemo, useRef, useState} from "react";
+import React, {useMemo, useState} from "react";
 import {useAppSelector} from "~/hooks/redux";
 import {Spinner} from "~/components/Spinner";
 import {AddUsersModal} from "~/modules/AdminModule/components/modals/AddUsersModal";
@@ -8,6 +8,7 @@ import type {CreateUserRequest} from "~/models/CreateUserRequest";
 import {ProbablyExistedModal} from "~/modules/AdminModule/components/modals/ProbablyExistedModal";
 import writeExcelFile from 'write-excel-file/browser'
 import {outputExampleModel} from "~/models/parseModels/Schemas/OutputExampleModel";
+import {searchUsers} from "~/utils/searchUsers";
 
 export const AdminMembers = () => {
     const [isLoading, setIsLoading] = useState(false);
@@ -29,13 +30,7 @@ export const AdminMembers = () => {
 
     const filteredUsers = useMemo(() => {
         const query = searchValue.trim().toLowerCase();
-        if (!query) return userList
-
-        const words = query.split(' ')
-        return userList.filter(user => {
-            const fullName = `${user.lastName} ${user.firstName} ${user.surname || ''}`.toLowerCase();
-            return words.every((word) => fullName.includes(word));
-        })
+        return searchUsers(userList, query)
     }, [searchValue, userList])
 
     return (

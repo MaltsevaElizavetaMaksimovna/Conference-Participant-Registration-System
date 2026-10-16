@@ -1,6 +1,6 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
 
-export const PrintError = () => {
+export const PrintErrorFrame = () => {
     return (
         <TerminalBlock sectionTitle={"Терминал · участник не найден"}>
             <div className="alert_icon">!</div>
