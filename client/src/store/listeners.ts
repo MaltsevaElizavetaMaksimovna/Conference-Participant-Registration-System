@@ -3,15 +3,24 @@ import {completeRegistration, scanSlice} from "~/store/reducers/ScanSlice";
 import {AUTO_RESET_TIMEOUT, FINISH_OR_ERROR_RESET_TIMEOUT, POLLING_INTERVAL} from "~/config/consts";
 import {isAnyOf} from "@reduxjs/toolkit";
 import {adminSlice, fetchUsers} from "~/store/reducers/AdminSlice";
+import {
+    conferenceSlice,
+    fetchConferenceSettings,
+    fetchTemplates,
+    updateSettings
+} from "~/store/reducers/ConferenceSlice";
 
-const {resetStatus, flagMismatch} = scanSlice.actions;
+const {resetStatus, flagMismatch, finishWithoutPrinting, errorWhileFetchingConference} = scanSlice.actions;
 const {setPanelOpen, setPanelClose} = adminSlice.actions;
+const {terminalMounted} = conferenceSlice.actions;
 
 startAppListening({
     predicate: (_, currentState, previousState) => {
         const isFalseTriggered = previousState.scanReducer.status === 'error' || previousState.scanReducer.status === 'finished'
         const isOnFinish = currentState.scanReducer.status === 'error' || currentState.scanReducer.status === 'finished'
-        return !isFalseTriggered && isOnFinish
+        if (isFalseTriggered || !isOnFinish) return false
+
+        return !!currentState.scanReducer.error?.isBusinessError;
     },
     effect: async (_, api) => {
         api.cancelActiveListeners()
@@ -53,3 +62,53 @@ startAppListening({
         api.cancelActiveListeners()
     }
 })
+
+startAppListening({
+    actionCreator: completeRegistration.fulfilled,
+    effect: async (_, api) => {
+        const state = api.getState()
+
+        if (state.conferenceReducer.conference?.badgeType == 'without') {
+            api.dispatch(finishWithoutPrinting())
+        }
+    }
+})
+
+startAppListening({
+    actionCreator: terminalMounted,
+    effect: async (_, api) => {
+        const MAX_RETRIES = 3;
+        const BASE_DELAY = 2_000;
+
+        if (api.getState().conferenceReducer.conference !== null) return;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                await api.dispatch(fetchConferenceSettings()).unwrap();
+                return;
+            } catch {
+                if (attempt < MAX_RETRIES) {
+                    await api.delay(BASE_DELAY * attempt);
+                }
+            }
+
+        }
+        api.dispatch(errorWhileFetchingConference(api.getState().conferenceReducer.error!))
+    }
+})
+
+startAppListening({
+    actionCreator: errorWhileFetchingConference,
+    effect: async (_, api) => {
+        api.cancelActiveListeners();
+
+        while (true) {
+            await api.delay(15_000);
+
+            const result = await api.dispatch(fetchConferenceSettings());
+            if (fetchConferenceSettings.fulfilled.match(result)) {
+                return;
+            }
+        }
+    },
+});

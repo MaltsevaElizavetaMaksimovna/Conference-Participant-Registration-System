@@ -30,4 +30,8 @@ export default class UserService {
     static async getUsers(): Promise<AxiosResponse<UserData[]>> {
         return $api.get<UserData[]>('/users/getUsers', {});
     }
+
+    static async markUserWithoutBadge(id: string): Promise<AxiosResponse<void>> {
+        return $api.patch<void>(`users/${id}/mark`, {})
+    }
 }

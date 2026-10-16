@@ -11,7 +11,7 @@ export interface ScanState {
 }
 
 const initialState: ScanState = {
-    status: 'confirm',
+    status: 'scanning',
     user: {
         id: '12312',
         status: "unregistered",
@@ -58,6 +58,13 @@ export const scanSlice = createSlice({
             state.user = undefined
         },
         flagMismatch: (state, action: PayloadAction<Errors>) => {
+            state.status = 'error'
+            state.error = action.payload
+        },
+        finishWithoutPrinting: (state) => {
+            state.status = 'finished'
+        },
+        errorWhileFetchingConference: (state, action: PayloadAction<Errors>) => {
             state.status = 'error'
             state.error = action.payload
         }

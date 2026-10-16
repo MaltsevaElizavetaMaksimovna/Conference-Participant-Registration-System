@@ -2,7 +2,7 @@ export interface UserData {
     firstName: string;
     lastName: string;
     surname?: string;
-    status: 'registered' | 'edited' | 'unregistered'
+    status: 'registered' | 'edited' | 'unregistered' | 'registeredWithoutLabel'
     post?: string;
     organization?: string;
     id: string;

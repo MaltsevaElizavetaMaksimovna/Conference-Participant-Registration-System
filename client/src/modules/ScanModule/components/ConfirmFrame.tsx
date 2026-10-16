@@ -38,8 +38,8 @@ export const ConfirmFrame = ({userData}: confirmFrameProps) => {
                 <div className="value">{ userData.organization || 'Не указано'}</div>
 
                 <div className="card_actions">
-                    <button onClick={() => handleReject()} className="btn btn_secondary">✕ Не верно</button>
-                    <button onClick={() => handleConfirm()} className="btn btn_primary">✓ Всё верно</button>
+                    <button onClick={handleReject} className="btn btn_secondary">✕ Не верно</button>
+                    <button onClick={handleConfirm} className="btn btn_primary">✓ Всё верно</button>
                 </div>
             </div>
         </TerminalBlock>

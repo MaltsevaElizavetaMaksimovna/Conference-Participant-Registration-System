@@ -3,12 +3,14 @@ import {scanReducer} from "~/store/reducers/ScanSlice";
 import {adminReducer} from "~/store/reducers/AdminSlice";
 import {listenerMiddleware} from "~/store/listenerMiddleware";
 import '~/store/listeners'
+import {conferenceReducer} from "~/store/reducers/ConferenceSlice";
 
 
 export const store = configureStore({
     reducer: {
         scanReducer: scanReducer,
         adminReducer: adminReducer,
+        conferenceReducer: conferenceReducer,
     },
     middleware: (getDefaultMiddleware) =>
         getDefaultMiddleware().prepend(listenerMiddleware.middleware),
