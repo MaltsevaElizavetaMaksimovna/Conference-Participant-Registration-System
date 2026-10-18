@@ -1,39 +1,23 @@
-"""Вход и выход сотрудников. ЗАГЛУШКИ (B1-01)."""
+"""Вход и выход сотрудников, текущий профиль, принтер панели (B1-01)."""
 
-from typing import Annotated
+from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import APIRouter, Cookie, Response
-
-from app.api.common import STUB_TAG, err
+from app.api.common import err
 from app.api.deps import staff
+from app.auth import service
+from app.auth.deps import SESSION_COOKIE, CurrentStaff, get_current_staff
+from app.auth.ratelimit import get_login_limiter
 from app.auth.schemas import LoginIn, MeOut, PanelPrinterIn
-from app.core.errors import AppError
-from app.roles.router import ALL_PERMISSIONS, REGISTRAR_PERMISSIONS
-from app.roles.schemas import RoleRef
+from app.core.config import Settings
+from app.core.db import get_session
 
-router = APIRouter(prefix="/auth", tags=["auth", STUB_TAG])
-
-COOKIE = "rs_session"
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _me(kind: str, printer_id: int | None = None) -> MeOut:
-    if kind == "admin":
-        return MeOut(
-            id=1,
-            full_name="Администратор Системы",
-            login="admin",
-            role=RoleRef(id=1, name="Администратор"),
-            permissions=ALL_PERMISSIONS,
-            panel_printer_id=printer_id,
-        )
-    return MeOut(
-        id=5,
-        full_name="Смирнова Елена Викторовна",
-        login="reg1",
-        role=RoleRef(id=2, name="Регистратор"),
-        permissions=REGISTRAR_PERMISSIONS,
-        panel_printer_id=printer_id,
-    )
+def _settings(request: Request) -> Settings:
+    settings: Settings = request.app.state.settings
+    return settings
 
 
 @router.post(
@@ -41,10 +25,11 @@ def _me(kind: str, printer_id: int | None = None) -> MeOut:
     operation_id="auth_login",
     summary="Вход",
     description=(
-        "Ставит cookie `rs_session` (HttpOnly). Ошибки: `401 invalid_credentials`, "
-        "`403 user_blocked`. **Заглушка:** логин `admin` даёт все права, любой другой — "
-        "права регистратора; пароль `wrong` даёт `invalid_credentials`, логин `blocked` — "
-        "`user_blocked`."
+        "Проверяет логин (без учёта регистра) и пароль, ставит cookie `rs_session` "
+        "(HttpOnly, SameSite=Lax, срок — `RS_SESSION_TTL_HOURS`, по умолчанию 12 ч) и "
+        "возвращает профиль. Разрешения фиксируются на момент входа: изменение роли "
+        "действует со следующего входа. Ошибки: `401 invalid_credentials`, "
+        "`403 user_blocked`, `429 too_many_requests` (10 неудач на пару IP + логин за 5 минут)."
     ),
     response_model=MeOut,
     responses=err(
@@ -54,31 +39,58 @@ def _me(kind: str, printer_id: int | None = None) -> MeOut:
         429,
     ),
 )
-async def login(body: LoginIn, response: Response) -> MeOut:
-    if body.password == "wrong":
-        raise AppError("invalid_credentials", "Неверный логин или пароль", 401)
-    if body.login == "blocked":
-        raise AppError("user_blocked", "Учётная запись заблокирована", 403)
-    kind = "admin" if body.login == "admin" else "registrar"
-    response.set_cookie(
-        COOKIE, f"stub-{kind}", httponly=True, samesite="lax", max_age=12 * 3600, path="/"
+async def login(
+    body: LoginIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> MeOut:
+    settings = _settings(request)
+    token, me = await service.authenticate(
+        session,
+        settings,
+        get_login_limiter(request.app),
+        login=body.login,
+        password=body.password,
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
     )
-    return _me(kind)
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=settings.session_ttl_hours * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=settings.env == "prod",
+        path="/",
+    )
+    return me
 
 
 @router.post(
     "/logout",
     operation_id="auth_logout",
     summary="Выход",
-    description="Завершает сессию и удаляет cookie.",
+    description="Отзывает сессию и удаляет cookie.",
     status_code=204,
     response_class=Response,
     dependencies=staff(write=True),
-    responses=err(401),
+    responses=err(401, 403),
 )
-async def logout() -> Response:
+async def logout(
+    request: Request,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    await service.revoke_session(session, current.session_id)
     response = Response(status_code=204)
-    response.delete_cookie(COOKIE, path="/")
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=_settings(request).env == "prod",
+    )
     return response
 
 
@@ -87,30 +99,40 @@ async def logout() -> Response:
     operation_id="auth_me",
     summary="Текущий сотрудник",
     description=(
-        "Профиль, роль и разрешения. **Заглушка:** отдаёт администратора, а если вход делали "
-        "под другим логином (cookie `stub-registrar`) — регистратора."
+        "Профиль, роль и разрешения из снимка на момент входа. "
+        "Без действующей сессии — `401 unauthenticated`."
     ),
     response_model=MeOut,
     dependencies=staff(),
     responses=err(401),
 )
 async def me(
-    rs_session: Annotated[str | None, Cookie()] = None,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
 ) -> MeOut:
-    return _me("registrar" if rs_session == "stub-registrar" else "admin")
+    return await service.current_profile(
+        session, current.user_id, service.sort_permissions({str(p) for p in current.permissions})
+    )
 
 
 @router.put(
     "/me/printer",
     operation_id="auth_set_panel_printer",
     summary="Выбрать принтер панели",
-    description="Разрешение: `stickers.print`. Запоминает принтер для печати из панели (RG-05).",
+    description=(
+        "Разрешение: `stickers.print`. Запоминает принтер для печати из панели (RG-05); "
+        "`null` сбрасывает выбор. Несуществующий принтер — `404 printer_not_found`."
+    ),
     response_model=MeOut,
     dependencies=staff("stickers.print", write=True),
-    responses=err(401, 403, 404, 422),
+    responses=err(401, 403, (404, "`printer_not_found`: принтера с таким id нет"), 422),
 )
 async def set_panel_printer(
     body: PanelPrinterIn,
-    rs_session: Annotated[str | None, Cookie()] = None,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
 ) -> MeOut:
-    return _me("registrar" if rs_session == "stub-registrar" else "admin", body.printer_id)
+    await service.set_panel_printer(session, current.user_id, body.printer_id)
+    return await service.current_profile(
+        session, current.user_id, service.sort_permissions({str(p) for p in current.permissions})
+    )

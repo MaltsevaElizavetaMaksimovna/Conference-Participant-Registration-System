@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 import httpx
 import psycopg
@@ -23,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cli import migrate
 from app.core.config import Settings
-from app.core.db import make_engine
+from app.core.db import get_session, make_engine
+from app.core.security import hash_password
 from app.main import create_app
+from app.models.staff import Role, RolePermission, StaffUser
 
 TEST_DB = "regsys_test"
 
@@ -119,3 +121,110 @@ async def db(database_url: str) -> AsyncIterator[AsyncSession]:
                 await outer.rollback()
     finally:
         await engine.dispose()
+
+
+# ------------------------------------------------------------ сотрудники и вход
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fast_password_hashing() -> Iterator[None]:
+    """Дешёвые параметры argon2 в тестах: иначе каждый вход тратит десятки миллисекунд."""
+    from argon2 import PasswordHasher
+
+    from app.core import security
+
+    original = security._hasher
+    security._hasher = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
+    security.dummy_hash.cache_clear()
+    yield
+    security._hasher = original
+    security.dummy_hash.cache_clear()
+
+
+@pytest.fixture
+async def app_db(app: FastAPI, db: AsyncSession) -> FastAPI:
+    """Приложение, у которого сессия БД — тестовая `db` (всё откатывается после теста).
+
+    Между запросами identity map очищается: так каждый запрос видит данные из БД,
+    как отдельная сессия в бою.
+    """
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        db.expunge_all()
+        yield db
+
+    app.dependency_overrides[get_session] = _session
+    return app
+
+
+class StaffClient(httpx.AsyncClient):
+    """Клиент вошедшего сотрудника: cookie сессии и заголовок `X-Requested-With: rs`."""
+
+    user_id: int
+    role_id: int
+    login: str
+    password: str
+
+
+async def create_role(db: AsyncSession, name: str | None = None, *permissions: str) -> Role:
+    role = Role(name=name or f"role-{uuid.uuid4().hex[:8]}")
+    db.add(role)
+    await db.flush()
+    db.add_all(RolePermission(role_id=role.id, permission=str(p)) for p in permissions)
+    await db.commit()
+    return role
+
+
+async def create_user(
+    db: AsyncSession,
+    role: Role,
+    login: str | None = None,
+    password: str = "password-1",
+    *,
+    full_name: str = "Тестовый Сотрудник",
+    blocked: bool = False,
+) -> StaffUser:
+    user = StaffUser(
+        full_name=full_name,
+        login=login or f"user-{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password(password),
+        role_id=role.id,
+        is_blocked=blocked,
+    )
+    db.add(user)
+    await db.commit()
+    return user
+
+
+type LoginAs = Callable[..., Awaitable[StaffClient]]
+
+
+@pytest.fixture
+async def login_as(app_db: FastAPI, db: AsyncSession) -> AsyncIterator[LoginAs]:
+    """`await login_as("users.manage", ...)`: роль с этими правами + сотрудник, вход через API.
+
+    Именованные параметры: `login`, `password`, `role` (готовая Role вместо новой).
+    Возвращает клиент с cookie сессии; каждый вызов — новый сотрудник и новая сессия.
+    """
+    clients: list[StaffClient] = []
+
+    async def make(
+        *permissions: str,
+        login: str | None = None,
+        password: str = "password-1",
+        role: Role | None = None,
+    ) -> StaffClient:
+        role = role or await create_role(db, None, *permissions)
+        user = await create_user(db, role, login, password)
+        transport = httpx.ASGITransport(app=app_db, raise_app_exceptions=False)
+        c = StaffClient(transport=transport, base_url="http://test")
+        clients.append(c)
+        r = await c.post("/api/auth/login", json={"login": user.login, "password": password})
+        assert r.status_code == 200, r.text
+        c.headers["X-Requested-With"] = "rs"
+        c.user_id, c.role_id, c.login, c.password = user.id, role.id, user.login, password
+        return c
+
+    yield make
+    for c in clients:
+        await c.aclose()
