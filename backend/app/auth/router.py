@@ -11,6 +11,7 @@ from app.auth.ratelimit import get_login_limiter
 from app.auth.schemas import LoginIn, MeOut, PanelPrinterIn
 from app.core.config import Settings
 from app.core.db import get_session
+from app.roles.service import sort_permissions
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -111,7 +112,7 @@ async def me(
     session: AsyncSession = Depends(get_session),
 ) -> MeOut:
     return await service.current_profile(
-        session, current.user_id, service.sort_permissions({str(p) for p in current.permissions})
+        session, current.user_id, sort_permissions({str(p) for p in current.permissions})
     )
 
 
@@ -134,5 +135,5 @@ async def set_panel_printer(
 ) -> MeOut:
     await service.set_panel_printer(session, current.user_id, body.printer_id)
     return await service.current_profile(
-        session, current.user_id, service.sort_permissions({str(p) for p in current.permissions})
+        session, current.user_id, sort_permissions({str(p) for p in current.permissions})
     )

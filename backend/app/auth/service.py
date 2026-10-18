@@ -10,7 +10,6 @@ from app.auth.ratelimit import LoginRateLimiter
 from app.auth.schemas import MeOut
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.permissions import Permission
 from app.core.security import (
     dummy_hash,
     hash_password,
@@ -21,24 +20,12 @@ from app.core.security import (
 )
 from app.models.base import utcnow
 from app.models.device import Printer
-from app.models.staff import Role, RolePermission, StaffSession, StaffUser
+from app.models.staff import Role, StaffSession, StaffUser
 from app.roles.schemas import RoleRef
+from app.roles.service import as_codes, role_permissions
 
 # Просроченные и отозванные сессии пользователя удаляются при его следующем входе
 _STALE_SESSION_AGE = timedelta(days=1)
-
-
-def sort_permissions(codes: set[str] | frozenset[str] | list[str]) -> list[str]:
-    """Коды разрешений в порядке каталога (неизвестные отбрасываются)."""
-    have = set(codes)
-    return [str(p) for p in Permission if str(p) in have]
-
-
-async def role_permissions(session: AsyncSession, role_id: int) -> list[str]:
-    codes = await session.scalars(
-        select(RolePermission.permission).where(RolePermission.role_id == role_id)
-    )
-    return sort_permissions(set(codes))
 
 
 async def build_me(session: AsyncSession, user: StaffUser, permissions: list[str]) -> MeOut:
@@ -49,7 +36,7 @@ async def build_me(session: AsyncSession, user: StaffUser, permissions: list[str
         full_name=user.full_name,
         login=user.login,
         role=RoleRef(id=role.id, name=role.name),
-        permissions=permissions,  # type: ignore[arg-type]  # str -> Literal PermissionCode
+        permissions=as_codes(permissions),
         panel_printer_id=user.panel_printer_id,
     )
 

@@ -24,7 +24,6 @@ from app.participants.schemas import (
 from app.printing.schemas import AgentJob, PrinterAdminOut, PrinterTokenOut
 from app.realtime.schemas import StatsEvent
 from app.registration.schemas import PrintJobOut, RegisterOut
-from app.roles.schemas import PermissionOut, RoleOut, UserOut
 from app.templates.schemas import OverflowItem, TemplateElement, TemplateOut
 from app.terminals.schemas import (
     ConfirmOut,
@@ -112,7 +111,12 @@ CONTRACT: set[tuple[str, str]] = {
 }
 
 # Реализованные эндпоинты (без тега `stub`); их проверяют отдельные тесты, не таблица заглушек
-IMPLEMENTED_PREFIXES: tuple[str, ...] = ("/api/auth/",)
+IMPLEMENTED_PREFIXES: tuple[str, ...] = (
+    "/api/auth/",
+    "/api/admin/roles",
+    "/api/admin/permissions",
+    "/api/admin/users",
+)
 
 TERMINAL = {"Authorization": "Terminal test-token"}
 AGENT = {"Authorization": "Agent test-token"}
@@ -337,38 +341,7 @@ Case = tuple[str, str, str, dict[str, Any], int, Any]
 # (id, метод, url, kwargs запроса, ожидаемый код, модель | None для пустого тела)
 CASES: list[Case] = [
     # auth: реальные эндпоинты (B1-01), см. tests/test_auth.py
-    # roles / users
-    ("roles_list", "GET", "/api/admin/roles", {}, 200, Page[RoleOut]),
-    (
-        "roles_create",
-        "POST",
-        "/api/admin/roles",
-        {"json": {"name": "Новая", "permissions": ["participants.view"]}},
-        201,
-        RoleOut,
-    ),
-    (
-        "roles_update",
-        "PUT",
-        "/api/admin/roles/2",
-        {"json": {"name": "Регистратор", "permissions": ["participants.view"]}},
-        200,
-        RoleOut,
-    ),
-    ("roles_delete", "DELETE", "/api/admin/roles/3", {}, 204, None),
-    ("permissions", "GET", "/api/admin/permissions", {}, 200, list[PermissionOut]),
-    ("users_list", "GET", "/api/admin/users", {}, 200, Page[UserOut]),
-    (
-        "users_create",
-        "POST",
-        "/api/admin/users",
-        {"json": {"full_name": "Тест", "login": "t1", "password": "password1", "role_id": 2}},
-        201,
-        UserOut,
-    ),
-    ("users_update", "PUT", "/api/admin/users/5", {"json": {"role_id": 1}}, 200, UserOut),
-    ("users_block", "POST", "/api/admin/users/5/block", {}, 200, UserOut),
-    ("users_unblock", "POST", "/api/admin/users/5/unblock", {}, 200, UserOut),
+    # roles / users: реальные эндпоинты (B1-02, B1-03), см. test_roles.py и test_users.py
     # conferences / imports
     ("conf_list", "GET", "/api/admin/conferences", {}, 200, Page[ConferenceOut]),
     (
@@ -737,16 +710,6 @@ async def _assert_error(r: httpx.Response, status: int, code: str) -> ErrorOut:
     err = ErrorOut.model_validate_json(r.content)
     assert err.code == code
     return err
-
-
-async def test_role_errors(client: httpx.AsyncClient) -> None:
-    r = await client.delete("/api/admin/roles/2")
-    err = await _assert_error(r, 409, "role_in_use")
-    assert err.details["users_count"] == 3
-    r = await client.put(
-        "/api/admin/roles/99", json={"name": "X", "permissions": ["participants.view"]}
-    )
-    await _assert_error(r, 409, "last_admin_permission")
 
 
 async def test_validation_error_format(client: httpx.AsyncClient) -> None:

@@ -157,6 +157,14 @@ async def app_db(app: FastAPI, db: AsyncSession) -> FastAPI:
     return app
 
 
+@pytest.fixture
+async def anon(app_db: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    """Клиент без входа на приложении с тестовой БД (`app_db`)."""
+    transport = httpx.ASGITransport(app=app_db, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
 class StaffClient(httpx.AsyncClient):
     """Клиент вошедшего сотрудника: cookie сессии и заголовок `X-Requested-With: rs`."""
 
