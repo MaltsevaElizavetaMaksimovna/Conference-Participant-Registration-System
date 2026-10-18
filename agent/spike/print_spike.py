@@ -389,11 +389,28 @@ def _mm(v: float) -> str:
     return f"{v:g}"
 
 
+# Калибровка принтера. Значения по умолчанию взяты из скрипта, который уже печатал
+# на XP-360B пользователя (58x80, DENSITY 10, SPEED 3, сдвиг на 2 мм влево).
+PRINT_SETTINGS = {"density": 10, "speed": 3, "shift_x_mm": -2.0}
+
+
 def tspl_header(w_mm: float, h_mm: float, gap_mm: float) -> bytes:
     return (f"SIZE {_mm(w_mm)} mm,{_mm(h_mm)} mm\r\n"
             f"GAP {_mm(gap_mm)} mm,0 mm\r\n"
             "DIRECTION 1\r\n"
-            "REFERENCE 0,0\r\n").encode("ascii")
+            f"DENSITY {int(PRINT_SETTINGS['density'])}\r\n"
+            f"SPEED {int(PRINT_SETTINGS['speed'])}\r\n").encode("ascii")
+
+
+def shift_x(img: Image.Image, shift_mm: float) -> Image.Image:
+    """Сдвигает изображение по горизонтали (минус = влево), освободившееся место белое."""
+    dx = round(shift_mm * DPMM)
+    if dx == 0:
+        return img
+    src = img if img.mode == "1" else img.convert("1")
+    out = Image.new("1", src.size, 1)
+    out.paste(src, (dx, 0))
+    return out
 
 
 def pack_bitmap(img: Image.Image, invert: bool = False, threshold: int = 128):
@@ -419,6 +436,7 @@ def pack_bitmap(img: Image.Image, invert: bool = False, threshold: int = 128):
 
 def tspl_page(img: Image.Image, copies: int = 1, invert: bool = False) -> bytes:
     """Одна страница задания: CLS, BITMAP, PRINT 1,copies."""
+    img = shift_x(img, float(PRINT_SETTINGS["shift_x_mm"]))
     data, wb, h = pack_bitmap(img, invert)
     return (b"CLS\r\n" + f"BITMAP 0,0,{wb},{h},0,".encode("ascii") + data + b"\r\n"
             + f"PRINT 1,{int(copies)}\r\n".encode("ascii"))
@@ -785,13 +803,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     def label_args(sp):
         sp.add_argument("--w", type=float, default=58, help="ширина наклейки, мм (58)")
-        sp.add_argument("--h", type=float, default=40, help="высота наклейки, мм (40)")
+        sp.add_argument("--h", type=float, default=80, help="высота наклейки, мм (80)")
         sp.add_argument("--gap", type=float, default=2, help="зазор между наклейками, мм (2)")
         sp.add_argument("--copies", type=int, default=1, help="копий (PRINT 1,n)")
         sp.add_argument("--invert", action="store_true", help="перевернуть биты, если квадрат вышел белым")
         sp.add_argument("--threshold", type=int, default=128, help="порог чёрного 0..255 (128)")
         sp.add_argument("--dry-run", action="store_true",
                         help="не печатать, а сохранить PNG и .prn в spike_out/")
+        sp.add_argument("--shift-x", type=float, default=-2.0,
+                        help="сдвиг картинки по горизонтали, мм; минус = влево (-2)")
+        sp.add_argument("--density", type=int, default=10, help="плотность печати 0..15 (10)")
+        sp.add_argument("--speed", type=int, default=3, help="скорость 1..6 (3)")
         sp.add_argument("--font-regular", default=DEFAULT_FONT_REGULAR, help="TTF обычный (с кириллицей)")
         sp.add_argument("--font-bold", default=DEFAULT_FONT_BOLD, help="TTF жирный (с кириллицей)")
 
@@ -831,6 +853,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
+    for key, attr in (("density", "density"), ("speed", "speed"), ("shift_x_mm", "shift_x")):
+        if hasattr(args, attr):
+            PRINT_SETTINGS[key] = getattr(args, attr)
     log = Log()
     log.header(argv)
     ok = False
