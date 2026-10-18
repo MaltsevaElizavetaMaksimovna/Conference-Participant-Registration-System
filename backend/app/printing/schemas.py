@@ -1,6 +1,6 @@
 """Схемы принтеров и агента печати (AD-02, TR-04, TR-08)."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.common import PrinterOut, PrinterStatus
 
@@ -10,13 +10,25 @@ class PrinterAdminOut(PrinterOut):
         description="Имя принтера в Windows на компьютере с агентом", examples=["XP-360B"]
     )
     dpi: int = Field(examples=[203])
+    offset_x_mm: float = Field(description="Калибровка: сдвиг печати по X, мм", examples=[0.0])
+    offset_y_mm: float = Field(description="Калибровка: сдвиг печати по Y, мм", examples=[0.0])
+    density: int = Field(description="Плотность печати TSPL `DENSITY`, 0..15", examples=[10])
+    speed: int = Field(description="Скорость печати TSPL `SPEED`, 1..6", examples=[3])
     token_set: bool = Field(description="Выдан ли токен агенту", examples=[True])
 
 
 class PrinterIn(BaseModel):
+    """Создание и изменение. В `PUT` меняются только переданные поля (кроме `name`)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str = Field(min_length=1, max_length=100, examples=["Принтер 1"])
     windows_printer_name: str | None = Field(default=None, max_length=200, examples=["XP-360B"])
     dpi: int = Field(default=203, ge=100, le=1200)
+    offset_x_mm: float = Field(default=0.0, ge=-50, le=50, description="Сдвиг по X, мм")
+    offset_y_mm: float = Field(default=0.0, ge=-50, le=50, description="Сдвиг по Y, мм")
+    density: int = Field(default=10, ge=0, le=15, description="Плотность печати, 0..15")
+    speed: int = Field(default=3, ge=1, le=6, description="Скорость печати, 1..6")
 
 
 class PrinterTokenOut(BaseModel):

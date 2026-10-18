@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 STUB_TAG = "stub"
 
-PrinterStatus = Literal["unknown", "online", "offline", "error", "paper_out"]
+PrinterStatus = Literal["unknown", "ready", "offline", "error"]
 PrintJobStatus = Literal["pending", "sent", "done", "error"]
 BadgeType = Literal["single", "double", "none"]
 

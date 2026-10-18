@@ -1,10 +1,11 @@
 """Зависимости авторизации.
 
-СЕЙЧАС ЭТО ЗАГЛУШКИ: схемы только описывают в OpenAPI (Swagger «Authorize»), какой вид
-авторизации нужен эндпоинту, и ничего не проверяют (`auto_error=False`).
+Схемы описывают в OpenAPI (Swagger «Authorize»), какой вид авторизации нужен эндпоинту
+(`auto_error=False`: ошибки отдают сами зависимости в едином формате).
 
-TODO B1-01: сессия сотрудника (cookie `rs_session`), проверка разрешений и CSRF-заголовка.
-TODO B2-01: токены терминала (`Authorization: Terminal <token>`) и агента (`Agent <token>`).
+Терминал и агент печати проверяются по-настоящему (`app.terminals.deps`, B2-01).
+TODO B1-01: сессия сотрудника (cookie `rs_session`), проверка разрешений и CSRF-заголовка;
+сейчас `staff()` только описывает схему в OpenAPI.
 """
 
 from collections.abc import Sequence
@@ -12,8 +13,6 @@ from typing import Annotated, Any
 
 from fastapi import Depends, Header, Security
 from fastapi.security import APIKeyCookie, APIKeyHeader
-
-from app.core.errors import AppError
 
 staff_session = APIKeyCookie(
     name="rs_session",
@@ -32,8 +31,9 @@ terminal_token = APIKeyHeader(
     scheme_name="TerminalToken",
     auto_error=False,
     description=(
-        "Терминал: заголовок `Authorization: Terminal <token>`. Токен выдаёт администратор. "
-        "В заглушках: токен, оканчивающийся на `disabled`, даёт `423 terminal_disabled`."
+        "Терминал: заголовок `Authorization: Terminal <token>`. Токен выдаёт администратор "
+        "(`POST /api/admin/terminals/{id}/token`). Нет токена или он неверный — "
+        "`401 invalid_device_token`, терминал отключён — `423 terminal_disabled`."
     ),
 )
 
@@ -41,7 +41,10 @@ agent_token = APIKeyHeader(
     name="Authorization",
     scheme_name="AgentToken",
     auto_error=False,
-    description="Агент печати: заголовок `Authorization: Agent <token>`.",
+    description=(
+        "Агент печати: заголовок `Authorization: Agent <token>`. Токен выдаёт администратор "
+        "(`POST /api/admin/printers/{id}/token`). Неверный токен — `401 invalid_device_token`."
+    ),
 )
 
 
@@ -56,12 +59,6 @@ async def csrf_header(
     """TODO B1-01: требовать `X-Requested-With: rs` и отвечать 403 при его отсутствии."""
 
 
-async def _terminal_guard(token: Annotated[str | None, Security(terminal_token)]) -> None:
-    # Только для заглушек: так фронт терминала может проверить экран «Терминал не работает».
-    if token and token.strip().lower().endswith("disabled"):
-        raise AppError("terminal_disabled", "Терминал не работает, воспользуйтесь соседним", 423)
-
-
 def staff(*permissions: str, write: bool = False) -> Sequence[Any]:
     """Сотрудник с сессией и (опционально) разрешениями; `write=True` — ещё CSRF-заголовок."""
     deps: list[Any] = [Security(staff_session, scopes=list(permissions))]
@@ -71,8 +68,14 @@ def staff(*permissions: str, write: bool = False) -> Sequence[Any]:
 
 
 def terminal() -> Sequence[Any]:
-    return [Depends(_terminal_guard)]
+    """Терминал с токеном (`Authorization: Terminal`); отключённый получает 423."""
+    from app.terminals.deps import get_current_terminal  # отложено: циклический импорт
+
+    return [Security(get_current_terminal)]
 
 
 def agent() -> Sequence[Any]:
-    return [Security(agent_token)]
+    """Агент печати с токеном (`Authorization: Agent`)."""
+    from app.terminals.deps import get_current_agent  # отложено: циклический импорт
+
+    return [Security(get_current_agent)]
