@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     print_confirm_timeout_s: int = 30  # агент не подтвердил задание -> error
     sse_keepalive_s: int = 15
     login_rate_limit_per_min: int = 10
+    # Ограничение перебора пароля: N неудач на (ip, логин) за окно, затем 429
+    login_max_failures: int = 10
+    login_fail_window_s: int = 300
     public_profile_rate_limit_per_min: int = 30
     import_max_file_mb: int = 10
     import_max_rows: int = 5000

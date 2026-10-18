@@ -9,9 +9,10 @@ from fastapi import FastAPI
 from pydantic import TypeAdapter
 
 from app.api.common import ErrorOut, Page, PrintJobRefOut
-from app.auth.schemas import MeOut
+from app.auth.deps import CurrentStaff, get_current_staff
 from app.badges.schemas import ProfileActive, ProfileRevoked
 from app.conferences.schemas import ConferenceOut
+from app.core.permissions import Permission
 from app.imports.schemas import ImportAcceptedOut, ImportReportOut
 from app.participants.schemas import (
     DuplicatesOut,
@@ -23,7 +24,6 @@ from app.participants.schemas import (
 from app.printing.schemas import AgentJob
 from app.realtime.schemas import StatsEvent
 from app.registration.schemas import PrintJobOut, RegisterOut
-from app.roles.schemas import PermissionOut, RoleOut, UserOut
 from app.templates.schemas import OverflowItem, TemplateElement, TemplateOut
 from app.terminals.deps import (
     CurrentAgent,
@@ -114,6 +114,14 @@ CONTRACT: set[tuple[str, str]] = {
     ("GET", "/api/public/profile/{}/photo"),
 }
 
+# Реализованные эндпоинты (без тега `stub`); их проверяют отдельные тесты, не таблица заглушек
+IMPLEMENTED_PREFIXES: tuple[str, ...] = (
+    "/api/auth/",
+    "/api/admin/roles",
+    "/api/admin/permissions",
+    "/api/admin/users",
+)
+
 TERMINAL = {"Authorization": "Terminal test-token"}
 AGENT = {"Authorization": "Agent test-token"}
 CSRF = {"X-Requested-With": "rs"}
@@ -159,6 +167,24 @@ async def get_openapi(client: httpx.AsyncClient) -> dict[str, Any]:
     return data
 
 
+@pytest.fixture(autouse=True)
+def _staff_with_all_permissions(app: FastAPI) -> None:
+    """Заглушки сотрудника проверяются без входа: сотрудник подменён на «всё можно» (B1-01)."""
+    staff = CurrentStaff(
+        user_id=0,
+        login="stub",
+        full_name="Заглушка",
+        role_id=0,
+        permissions=frozenset(Permission),
+        session_id="stub",
+    )
+
+    async def _stub_staff() -> CurrentStaff:
+        return staff
+
+    app.dependency_overrides[get_current_staff] = _stub_staff
+
+
 def _operations(schema: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
     ops: dict[tuple[str, str], dict[str, Any]] = {}
     for path, methods in schema["paths"].items():
@@ -189,8 +215,9 @@ async def test_every_operation_is_tagged_and_named(client: httpx.AsyncClient) ->
     declared = {t["name"] for t in schema["tags"]}
     for (method, path), op in ops.items():
         where = f"{method} {path}"
-        assert ("stub" in op["tags"]) != ((method, path) in REAL), where
-        assert len(op["tags"]) >= (1 if (method, path) in REAL else 2), where
+        real = (method, path) in REAL or path.startswith(IMPLEMENTED_PREFIXES)
+        assert ("stub" in op["tags"]) != real, where
+        assert len(op["tags"]) >= (1 if real else 2), where
         assert set(op["tags"]) <= declared, where
         assert re.fullmatch(r"[a-z][a-z0-9]*(_[a-z0-9]+)*", op["operationId"]), where
         assert op.get("summary"), where
@@ -345,43 +372,8 @@ def test_contract_examples_validate() -> None:
 Case = tuple[str, str, str, dict[str, Any], int, Any]
 # (id, метод, url, kwargs запроса, ожидаемый код, модель | None для пустого тела)
 CASES: list[Case] = [
-    # auth
-    ("login", "POST", "/api/auth/login", {"json": {"login": "reg1", "password": "x"}}, 200, MeOut),
-    ("logout", "POST", "/api/auth/logout", {"headers": CSRF}, 204, None),
-    ("me", "GET", "/api/auth/me", {}, 200, MeOut),
-    ("set_printer", "PUT", "/api/auth/me/printer", {"json": {"printer_id": 2}}, 200, MeOut),
-    # roles / users
-    ("roles_list", "GET", "/api/admin/roles", {}, 200, Page[RoleOut]),
-    (
-        "roles_create",
-        "POST",
-        "/api/admin/roles",
-        {"json": {"name": "Новая", "permissions": ["participants.view"]}},
-        201,
-        RoleOut,
-    ),
-    (
-        "roles_update",
-        "PUT",
-        "/api/admin/roles/2",
-        {"json": {"name": "Регистратор", "permissions": ["participants.view"]}},
-        200,
-        RoleOut,
-    ),
-    ("roles_delete", "DELETE", "/api/admin/roles/3", {}, 204, None),
-    ("permissions", "GET", "/api/admin/permissions", {}, 200, list[PermissionOut]),
-    ("users_list", "GET", "/api/admin/users", {}, 200, Page[UserOut]),
-    (
-        "users_create",
-        "POST",
-        "/api/admin/users",
-        {"json": {"full_name": "Тест", "login": "t1", "password": "password1", "role_id": 2}},
-        201,
-        UserOut,
-    ),
-    ("users_update", "PUT", "/api/admin/users/5", {"json": {"role_id": 1}}, 200, UserOut),
-    ("users_block", "POST", "/api/admin/users/5/block", {}, 200, UserOut),
-    ("users_unblock", "POST", "/api/admin/users/5/unblock", {}, 200, UserOut),
+    # auth: реальные эндпоинты (B1-01), см. tests/test_auth.py
+    # roles / users: реальные эндпоинты (B1-02, B1-03), см. test_roles.py и test_users.py
     # conferences / imports
     ("conf_list", "GET", "/api/admin/conferences", {}, 200, Page[ConferenceOut]),
     (
@@ -696,32 +688,6 @@ async def _assert_error(r: httpx.Response, status: int, code: str) -> ErrorOut:
     err = ErrorOut.model_validate_json(r.content)
     assert err.code == code
     return err
-
-
-async def test_login_errors(client: httpx.AsyncClient) -> None:
-    r = await client.post("/api/auth/login", json={"login": "reg1", "password": "wrong"})
-    await _assert_error(r, 401, "invalid_credentials")
-    r = await client.post("/api/auth/login", json={"login": "blocked", "password": "x"})
-    await _assert_error(r, 403, "user_blocked")
-
-
-async def test_login_sets_httponly_cookie(client: httpx.AsyncClient) -> None:
-    r = await client.post("/api/auth/login", json={"login": "admin", "password": "x"})
-    cookie = r.headers["set-cookie"]
-    assert cookie.startswith("rs_session=")
-    assert "HttpOnly" in cookie
-    me = MeOut.model_validate_json(r.content)
-    assert "users.manage" in me.permissions
-
-
-async def test_role_errors(client: httpx.AsyncClient) -> None:
-    r = await client.delete("/api/admin/roles/2")
-    err = await _assert_error(r, 409, "role_in_use")
-    assert err.details["users_count"] == 3
-    r = await client.put(
-        "/api/admin/roles/99", json={"name": "X", "permissions": ["participants.view"]}
-    )
-    await _assert_error(r, 409, "last_admin_permission")
 
 
 async def test_validation_error_format(client: httpx.AsyncClient) -> None:

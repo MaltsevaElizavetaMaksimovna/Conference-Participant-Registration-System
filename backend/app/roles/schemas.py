@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-# TODO: заменить на общий enum Permission (app/core/permissions.py)
+# Совпадает с `Permission` (app/core/permissions.py); тест в test_roles сверяет списки
 PermissionCode = Literal[
     "participants.view",
     "registration.desk",
@@ -60,16 +60,58 @@ class UserOut(BaseModel):
     created_at: datetime = Field(examples=["2026-11-01T10:00:00+03:00"])
 
 
+MIN_PASSWORD_LEN = 8
+
+
+def _check_password(v: object) -> object:
+    if isinstance(v, str) and len(v) < MIN_PASSWORD_LEN:
+        raise ValueError(f"Пароль должен быть не короче {MIN_PASSWORD_LEN} символов")
+    return v
+
+
 class UserCreateIn(BaseModel):
     full_name: str = Field(min_length=1, max_length=200, examples=["Смирнова Елена Викторовна"])
     login: str = Field(min_length=1, max_length=64, examples=["reg1"])
-    password: str = Field(min_length=8, max_length=128, examples=["S3cret-pass"])
+    password: str = Field(min_length=MIN_PASSWORD_LEN, max_length=128, examples=["S3cret-pass"])
     role_id: int = Field(examples=[2])
+
+    @field_validator("full_name")
+    @classmethod
+    def _full_name_not_blank(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("Укажите ФИО")
+        return v
+
+    @field_validator("login")
+    @classmethod
+    def _login_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Укажите логин")
+        return v
+
+    _password_len = field_validator("password", mode="before")(_check_password)
 
 
 class UserUpdateIn(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
     role_id: int | None = None
     password: str | None = Field(
-        default=None, min_length=8, max_length=128, description="Новый пароль; пусто — не менять"
+        default=None,
+        min_length=MIN_PASSWORD_LEN,
+        max_length=128,
+        description="Новый пароль; пусто — не менять. Завершает остальные сессии сотрудника",
     )
+
+    @field_validator("full_name")
+    @classmethod
+    def _full_name_not_blank(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("Укажите ФИО")
+        return v
+
+    _password_len = field_validator("password", mode="before")(_check_password)

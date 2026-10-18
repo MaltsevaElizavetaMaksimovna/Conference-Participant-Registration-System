@@ -1,81 +1,25 @@
-"""Роли, разрешения и учётные записи сотрудников (AD-03, AD-04). ЗАГЛУШКИ."""
+"""Роли, разрешения и учётные записи сотрудников (AD-03, AD-04)."""
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.common import STUB_TAG, Limit, Offset, Page, err
+from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
-from app.api.stubs import T0
-from app.core.errors import AppError
+from app.auth.deps import CurrentStaff, get_current_staff
+from app.core.db import get_session
+from app.roles import service
 from app.roles.schemas import (
-    PermissionCode,
     PermissionOut,
     RoleIn,
     RoleOut,
-    RoleRef,
     UserCreateIn,
     UserOut,
     UserUpdateIn,
 )
 
-roles_router = APIRouter(prefix="/admin/roles", tags=["admin: roles", STUB_TAG])
-permissions_router = APIRouter(prefix="/admin/permissions", tags=["admin: roles", STUB_TAG])
-users_router = APIRouter(prefix="/admin/users", tags=["admin: users", STUB_TAG])
-
-PERMISSION_TITLES: dict[PermissionCode, str] = {
-    "participants.view": "Просмотр и поиск участников",
-    "registration.desk": "Регистрация со стойки, в том числе без наклейки",
-    "stickers.print": "Печать и повторная печать наклеек",
-    "participants.edit": "Исправление данных участника",
-    "participants.add": "Добавление участника",
-    "registration.foreign_code": "Отметка «Зарегистрирован по чужому коду»",
-    "imports.run": "Загрузка участников",
-    "conferences.manage": "Настройка конференций и шаблонов",
-    "devices.manage": "Настройка терминалов и принтеров",
-    "users.manage": "Управление учётными записями и ролями",
-}
-
-REGISTRAR_PERMISSIONS: list[PermissionCode] = [
-    "participants.view",
-    "registration.desk",
-    "stickers.print",
-    "participants.edit",
-    "participants.add",
-    "registration.foreign_code",
-]
-ALL_PERMISSIONS: list[PermissionCode] = list(PERMISSION_TITLES)
-
-
-def _roles() -> list[RoleOut]:
-    return [
-        RoleOut(
-            id=1, name="Администратор", is_system=True, permissions=ALL_PERMISSIONS, users_count=1
-        ),
-        RoleOut(
-            id=2,
-            name="Регистратор",
-            is_system=True,
-            permissions=REGISTRAR_PERMISSIONS,
-            users_count=3,
-        ),
-    ]
-
-
-def _role(role_id: int) -> RoleOut:
-    for r in _roles():
-        if r.id == role_id:
-            return r
-    raise AppError("role_not_found", "Роль не найдена", 404)
-
-
-def _user(user_id: int, *, blocked: bool = False) -> UserOut:
-    return UserOut(
-        id=user_id,
-        full_name="Смирнова Елена Викторовна",
-        login="reg1",
-        role=RoleRef(id=2, name="Регистратор"),
-        is_blocked=blocked,
-        created_at=T0,
-    )
+roles_router = APIRouter(prefix="/admin/roles", tags=["admin: roles"])
+permissions_router = APIRouter(prefix="/admin/permissions", tags=["admin: roles"])
+users_router = APIRouter(prefix="/admin/users", tags=["admin: users"])
 
 
 @roles_router.get(
@@ -87,25 +31,25 @@ def _user(user_id: int, *, blocked: bool = False) -> UserOut:
     dependencies=staff("users.manage"),
     responses=err(401, 403),
 )
-async def roles_list(limit: Limit = 50, offset: Offset = 0) -> Page[RoleOut]:
-    items = _roles()
-    return Page[RoleOut](items=items[offset : offset + limit], total=len(items))
+async def roles_list(
+    limit: Limit = 50, offset: Offset = 0, session: AsyncSession = Depends(get_session)
+) -> Page[RoleOut]:
+    items, total = await service.list_roles(session, limit, offset)
+    return Page[RoleOut](items=items, total=total)
 
 
 @roles_router.post(
     "",
     operation_id="roles_create",
     summary="Создать роль",
-    description="Разрешение: `users.manage`.",
+    description="Разрешение: `users.manage`. Название уникально без учёта регистра.",
     status_code=201,
     response_model=RoleOut,
     dependencies=staff("users.manage", write=True),
-    responses=err(401, 403, 422),
+    responses=err(401, 403, (409, "`role_name_taken`: роль с таким названием уже есть"), 422),
 )
-async def roles_create(body: RoleIn) -> RoleOut:
-    return RoleOut(
-        id=3, name=body.name, is_system=False, permissions=body.permissions, users_count=0
-    )
+async def roles_create(body: RoleIn, session: AsyncSession = Depends(get_session)) -> RoleOut:
+    return await service.create_role(session, body)
 
 
 @roles_router.put(
@@ -114,28 +58,27 @@ async def roles_create(body: RoleIn) -> RoleOut:
     summary="Изменить роль",
     description=(
         "Разрешение: `users.manage`. Изменение прав действует для сотрудников со следующего "
-        "входа (AD-04). Нельзя убрать `users.manage` у последней роли, которая его имеет. "
-        "В заглушке роль 99 даёт `last_admin_permission`."
+        "входа (AD-04). Нельзя сохранить изменения, после которых ни у одной действующей "
+        "учётной записи не останется разрешения `users.manage` (`last_admin_permission`)."
     ),
     response_model=RoleOut,
     dependencies=staff("users.manage", write=True),
     responses=err(
         401,
         403,
-        404,
+        (404, "`role_not_found`: роли нет"),
         422,
-        (409, "`last_admin_permission`: нельзя лишить последнюю роль права `users.manage`"),
+        (
+            409,
+            "`last_admin_permission`: не останется администратора; "
+            "`role_name_taken`: название занято",
+        ),
     ),
 )
-async def roles_update(role_id: int, body: RoleIn) -> RoleOut:
-    if role_id == 99:
-        raise AppError(
-            "last_admin_permission",
-            "Нельзя убрать право управления пользователями у последней роли",
-            409,
-        )
-    role = _role(role_id)
-    return role.model_copy(update={"name": body.name, "permissions": body.permissions})
+async def roles_update(
+    role_id: int, body: RoleIn, session: AsyncSession = Depends(get_session)
+) -> RoleOut:
+    return await service.update_role(session, role_id, body)
 
 
 @roles_router.delete(
@@ -143,8 +86,8 @@ async def roles_update(role_id: int, body: RoleIn) -> RoleOut:
     operation_id="roles_delete",
     summary="Удалить роль",
     description=(
-        "Разрешение: `users.manage`. Роль, назначенная сотрудникам, удалить нельзя. "
-        "В заглушке роли 1 и 2 дают `role_in_use`, остальные удаляются."
+        "Разрешение: `users.manage`. Роль, назначенная хотя бы одному сотруднику, удалению "
+        "не подлежит: `409 role_in_use` (`details.users_count`)."
     ),
     status_code=204,
     response_class=Response,
@@ -152,19 +95,12 @@ async def roles_update(role_id: int, body: RoleIn) -> RoleOut:
     responses=err(
         401,
         403,
-        404,
-        (409, "`role_in_use`: роль назначена сотрудникам; `last_admin_permission`"),
+        (404, "`role_not_found`: роли нет"),
+        (409, "`role_in_use`: роль назначена сотрудникам"),
     ),
 )
-async def roles_delete(role_id: int) -> None:
-    if role_id in (1, 2):
-        role = _role(role_id)
-        raise AppError(
-            "role_in_use",
-            f"Роль «{role.name}» назначена сотрудникам ({role.users_count})",
-            409,
-            {"users_count": role.users_count},
-        )
+async def roles_delete(role_id: int, session: AsyncSession = Depends(get_session)) -> None:
+    await service.delete_role(session, role_id)
 
 
 @permissions_router.get(
@@ -177,7 +113,7 @@ async def roles_delete(role_id: int) -> None:
     responses=err(401, 403),
 )
 async def permissions_list() -> list[PermissionOut]:
-    return [PermissionOut(code=c, title=t) for c, t in PERMISSION_TITLES.items()]
+    return service.permissions_catalog()
 
 
 @users_router.get(
@@ -189,63 +125,85 @@ async def permissions_list() -> list[PermissionOut]:
     dependencies=staff("users.manage"),
     responses=err(401, 403),
 )
-async def users_list(limit: Limit = 50, offset: Offset = 0) -> Page[UserOut]:
-    items = [_user(5), _user(6, blocked=True).model_copy(update={"login": "reg2"})]
-    return Page[UserOut](items=items[offset : offset + limit], total=len(items))
+async def users_list(
+    limit: Limit = 50, offset: Offset = 0, session: AsyncSession = Depends(get_session)
+) -> Page[UserOut]:
+    items, total = await service.list_users(session, limit, offset)
+    return Page[UserOut](items=items, total=total)
 
 
 @users_router.post(
     "",
     operation_id="users_create",
     summary="Создать сотрудника",
-    description="Разрешение: `users.manage`.",
+    description=(
+        "Разрешение: `users.manage`. ФИО, логин, пароль (не короче 8 символов) и роль. "
+        "Логин уникален без учёта регистра."
+    ),
     status_code=201,
     response_model=UserOut,
     dependencies=staff("users.manage", write=True),
-    responses=err(401, 403, 422, (409, "`login_taken`: логин уже занят")),
+    responses=err(
+        401,
+        403,
+        (404, "`role_not_found`: такой роли нет"),
+        422,
+        (409, "`login_taken`: логин уже занят"),
+    ),
 )
-async def users_create(body: UserCreateIn) -> UserOut:
-    role = _role(body.role_id)
-    return _user(7).model_copy(
-        update={
-            "full_name": body.full_name,
-            "login": body.login,
-            "role": RoleRef(id=role.id, name=role.name),
-        }
-    )
+async def users_create(body: UserCreateIn, session: AsyncSession = Depends(get_session)) -> UserOut:
+    return await service.create_user(session, body)
 
 
 @users_router.put(
     "/{user_id}",
     operation_id="users_update",
     summary="Изменить сотрудника",
-    description="Разрешение: `users.manage`.",
+    description=(
+        "Разрешение: `users.manage`. Можно сменить ФИО, роль и пароль (все поля необязательны). "
+        "Новая роль и права действуют со следующего входа сотрудника. Смена пароля завершает "
+        "остальные сессии сотрудника. Нельзя сменить роль так, чтобы не осталось действующей "
+        "учётной записи с `users.manage` (`last_admin_permission`)."
+    ),
     response_model=UserOut,
     dependencies=staff("users.manage", write=True),
-    responses=err(401, 403, 404, 422),
+    responses=err(
+        401,
+        403,
+        (404, "`user_not_found` или `role_not_found`"),
+        422,
+        (409, "`last_admin_permission`: не останется администратора"),
+    ),
 )
-async def users_update(user_id: int, body: UserUpdateIn) -> UserOut:
-    user = _user(user_id)
-    update: dict[str, object] = {}
-    if body.full_name is not None:
-        update["full_name"] = body.full_name
-    if body.role_id is not None:
-        role = _role(body.role_id)
-        update["role"] = RoleRef(id=role.id, name=role.name)
-    return user.model_copy(update=update)
+async def users_update(
+    user_id: int,
+    body: UserUpdateIn,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
+) -> UserOut:
+    return await service.update_user(session, user_id, body, keep_session_id=current.session_id)
 
 
 @users_router.post(
     "/{user_id}/block",
     operation_id="users_block",
     summary="Заблокировать сотрудника",
-    description="Разрешение: `users.manage`. Действующие сессии сотрудника отзываются.",
+    description=(
+        "Разрешение: `users.manage`. Действующие сессии сотрудника отзываются, войти он не "
+        "сможет. Нельзя заблокировать последнюю действующую учётную запись с `users.manage` "
+        "(`last_admin_permission`)."
+    ),
     response_model=UserOut,
     dependencies=staff("users.manage", write=True),
-    responses=err(401, 403, 404),
+    responses=err(
+        401,
+        403,
+        (404, "`user_not_found`: сотрудника нет"),
+        (409, "`last_admin_permission`: не останется администратора"),
+    ),
 )
-async def users_block(user_id: int) -> UserOut:
-    return _user(user_id, blocked=True)
+async def users_block(user_id: int, session: AsyncSession = Depends(get_session)) -> UserOut:
+    return await service.set_blocked(session, user_id, blocked=True)
 
 
 @users_router.post(
@@ -255,10 +213,10 @@ async def users_block(user_id: int) -> UserOut:
     description="Разрешение: `users.manage`.",
     response_model=UserOut,
     dependencies=staff("users.manage", write=True),
-    responses=err(401, 403, 404),
+    responses=err(401, 403, (404, "`user_not_found`: сотрудника нет")),
 )
-async def users_unblock(user_id: int) -> UserOut:
-    return _user(user_id, blocked=False)
+async def users_unblock(user_id: int, session: AsyncSession = Depends(get_session)) -> UserOut:
+    return await service.set_blocked(session, user_id, blocked=False)
 
 
 router = APIRouter()

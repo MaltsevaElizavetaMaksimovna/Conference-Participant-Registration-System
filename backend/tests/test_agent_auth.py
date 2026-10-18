@@ -159,9 +159,6 @@ async def test_job_endpoints_are_under_agent_auth(
 async def test_agent_token_does_not_open_staff_api(
     db_client: httpx.AsyncClient, devices: Devices
 ) -> None:
-    probe = await db_client.get("/api/admin/printers")
-    if probe.status_code == 200:
-        pytest.skip("Вход сотрудника пока заглушка (B1-01): запросы без cookie пропускаются")
     _, token = await devices.printer()
     for url in ("/api/admin/printers", "/api/printers", "/api/participants"):
         r = await db_client.get(url, headers=agent(token))

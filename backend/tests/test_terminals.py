@@ -30,9 +30,9 @@ async def _json(r: httpx.Response, status: int) -> dict[str, object]:
 # ------------------------------------------------------------------ админка: CRUD
 
 
-async def test_create_terminal(db_client: httpx.AsyncClient, devices: Devices) -> None:
+async def test_create_terminal(admin_client: httpx.AsyncClient, devices: Devices) -> None:
     printer, _ = await devices.printer("Принтер 1")
-    r = await db_client.post(
+    r = await admin_client.post(
         "/api/admin/terminals",
         headers=CSRF,
         json={"name": "  Терминал 1  ", "printer_id": printer.id},
@@ -46,9 +46,9 @@ async def test_create_terminal(db_client: httpx.AsyncClient, devices: Devices) -
 
 
 async def test_create_terminal_without_printer_and_disabled(
-    db_client: httpx.AsyncClient,
+    admin_client: httpx.AsyncClient,
 ) -> None:
-    r = await db_client.post(
+    r = await admin_client.post(
         "/api/admin/terminals", headers=CSRF, json={"name": "Т", "enabled": False}
     )
     body = TerminalOut.model_validate(await _json(r, 201))
@@ -56,34 +56,38 @@ async def test_create_terminal_without_printer_and_disabled(
     assert body.printer_id is None
 
 
-async def test_terminal_name_must_be_unique(db_client: httpx.AsyncClient, devices: Devices) -> None:
+async def test_terminal_name_must_be_unique(
+    admin_client: httpx.AsyncClient, devices: Devices
+) -> None:
     await devices.terminal("Терминал 1", token=False)
     other, _ = await devices.terminal("Терминал 2", token=False)
 
-    r = await db_client.post("/api/admin/terminals", headers=CSRF, json={"name": "Терминал 1"})
+    r = await admin_client.post("/api/admin/terminals", headers=CSRF, json={"name": "Терминал 1"})
     assert (await _json(r, 409))["code"] == "name_taken"
 
-    r = await db_client.put(
+    r = await admin_client.put(
         f"/api/admin/terminals/{other.id}", headers=CSRF, json={"name": "Терминал 1"}
     )
     assert (await _json(r, 409))["code"] == "name_taken"
 
     # своё же имя при изменении — не конфликт
-    r = await db_client.put(
+    r = await admin_client.put(
         f"/api/admin/terminals/{other.id}", headers=CSRF, json={"name": "Терминал 2"}
     )
     assert r.status_code == 200
 
 
-async def test_terminal_printer_must_exist(db_client: httpx.AsyncClient, devices: Devices) -> None:
-    r = await db_client.post(
+async def test_terminal_printer_must_exist(
+    admin_client: httpx.AsyncClient, devices: Devices
+) -> None:
+    r = await admin_client.post(
         "/api/admin/terminals", headers=CSRF, json={"name": "Т", "printer_id": 999999}
     )
     body = await _json(r, 422)
     assert body["code"] == "printer_not_found"
 
     terminal, _ = await devices.terminal(token=False)
-    r = await db_client.put(
+    r = await admin_client.put(
         f"/api/admin/terminals/{terminal.id}",
         headers=CSRF,
         json={"name": terminal.name, "printer_id": 999999},
@@ -92,35 +96,35 @@ async def test_terminal_printer_must_exist(db_client: httpx.AsyncClient, devices
 
 
 @pytest.mark.parametrize("name", ["", "   ", "x" * 101])
-async def test_terminal_name_validation(db_client: httpx.AsyncClient, name: str) -> None:
-    r = await db_client.post("/api/admin/terminals", headers=CSRF, json={"name": name})
+async def test_terminal_name_validation(admin_client: httpx.AsyncClient, name: str) -> None:
+    r = await admin_client.post("/api/admin/terminals", headers=CSRF, json={"name": name})
     body = await _json(r, 422)
     assert body["code"] == "validation_error"
     assert "name" in body["details"]["fields"]  # type: ignore[index]
 
 
 async def test_update_terminal_changes_only_sent_fields(
-    db_client: httpx.AsyncClient, devices: Devices
+    admin_client: httpx.AsyncClient, devices: Devices
 ) -> None:
     printer, _ = await devices.printer()
     terminal, _ = await devices.terminal("Т", printer=printer)
 
     # отключаем: привязка к принтеру остаётся
-    r = await db_client.put(
+    r = await admin_client.put(
         f"/api/admin/terminals/{terminal.id}", headers=CSRF, json={"name": "Т", "enabled": False}
     )
     body = TerminalOut.model_validate(await _json(r, 200))
     assert (body.enabled, body.printer_id) == (False, printer.id)
 
     # переименование не включает терминал обратно
-    r = await db_client.put(
+    r = await admin_client.put(
         f"/api/admin/terminals/{terminal.id}", headers=CSRF, json={"name": "Т2"}
     )
     body = TerminalOut.model_validate(await _json(r, 200))
     assert (body.name, body.enabled, body.printer_id) == ("Т2", False, printer.id)
 
     # явный null отвязывает принтер, enabled включает
-    r = await db_client.put(
+    r = await admin_client.put(
         f"/api/admin/terminals/{terminal.id}",
         headers=CSRF,
         json={"name": "Т2", "enabled": True, "printer_id": None},
@@ -129,17 +133,17 @@ async def test_update_terminal_changes_only_sent_fields(
     assert (body.enabled, body.printer_id) == (True, None)
 
 
-async def test_unknown_terminal_is_404(db_client: httpx.AsyncClient) -> None:
-    r = await db_client.put("/api/admin/terminals/999999", headers=CSRF, json={"name": "Т"})
+async def test_unknown_terminal_is_404(admin_client: httpx.AsyncClient) -> None:
+    r = await admin_client.put("/api/admin/terminals/999999", headers=CSRF, json={"name": "Т"})
     assert (await _json(r, 404))["code"] == "terminal_not_found"
-    r = await db_client.post("/api/admin/terminals/999999/token", headers=CSRF)
+    r = await admin_client.post("/api/admin/terminals/999999/token", headers=CSRF)
     assert (await _json(r, 404))["code"] == "terminal_not_found"
 
 
-async def test_list_terminals_is_paged(db_client: httpx.AsyncClient, devices: Devices) -> None:
+async def test_list_terminals_is_paged(admin_client: httpx.AsyncClient, devices: Devices) -> None:
     for i in range(1, 4):
         await devices.terminal(f"Терминал {i}", token=i == 2)
-    r = await db_client.get("/api/admin/terminals?limit=2&offset=1")
+    r = await admin_client.get("/api/admin/terminals?limit=2&offset=1")
     page = await _json(r, 200)
     assert page["total"] == 3
     items = page["items"]
@@ -151,10 +155,10 @@ async def test_list_terminals_is_paged(db_client: httpx.AsyncClient, devices: De
 
 
 async def test_token_is_shown_once_and_stored_as_hash(
-    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
+    admin_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
     terminal, _ = await devices.terminal(token=False)
-    r = await db_client.post(f"/api/admin/terminals/{terminal.id}/token", headers=CSRF)
+    r = await admin_client.post(f"/api/admin/terminals/{terminal.id}/token", headers=CSRF)
     issued = TerminalTokenOut.model_validate(await _json(r, 200))
     assert issued.id == terminal.id
     assert issued.token.startswith("trm_") and len(issued.token) >= 40
@@ -165,25 +169,27 @@ async def test_token_is_shown_once_and_stored_as_hash(
     assert len(terminal.token_hash) == 64
 
     # токен нигде больше не показывается
-    listing = (await db_client.get("/api/admin/terminals")).text
+    listing = (await admin_client.get("/api/admin/terminals")).text
     assert issued.token not in listing and terminal.token_hash not in listing
-    assert (await db_client.get("/api/admin/terminals")).json()["items"][0]["token_set"] is True
+    assert (await admin_client.get("/api/admin/terminals")).json()["items"][0]["token_set"] is True
 
-    r = await db_client.get("/api/terminal/ping", headers=auth(issued.token))
+    r = await admin_client.get("/api/terminal/ping", headers=auth(issued.token))
     assert r.status_code == 200
 
 
-async def test_new_token_replaces_old_one(db_client: httpx.AsyncClient, devices: Devices) -> None:
+async def test_new_token_replaces_old_one(
+    admin_client: httpx.AsyncClient, devices: Devices
+) -> None:
     terminal, old = await devices.terminal()
-    assert (await db_client.get("/api/terminal/ping", headers=auth(old))).status_code == 200
+    assert (await admin_client.get("/api/terminal/ping", headers=auth(old))).status_code == 200
 
-    r = await db_client.post(f"/api/admin/terminals/{terminal.id}/token", headers=CSRF)
+    r = await admin_client.post(f"/api/admin/terminals/{terminal.id}/token", headers=CSRF)
     new = TerminalTokenOut.model_validate(await _json(r, 200)).token
     assert new != old
 
-    r = await db_client.get("/api/terminal/ping", headers=auth(old))
+    r = await admin_client.get("/api/terminal/ping", headers=auth(old))
     assert (await _json(r, 401))["code"] == "invalid_device_token"
-    assert (await db_client.get("/api/terminal/ping", headers=auth(new))).status_code == 200
+    assert (await admin_client.get("/api/terminal/ping", headers=auth(new))).status_code == 200
 
 
 # ----------------------------------------------------------------- авторизация
@@ -202,27 +208,29 @@ async def test_new_token_replaces_old_one(db_client: httpx.AsyncClient, devices:
     ],
 )
 async def test_missing_or_wrong_token_is_401(
-    db_client: httpx.AsyncClient, devices: Devices, headers: dict[str, str]
+    admin_client: httpx.AsyncClient, devices: Devices, headers: dict[str, str]
 ) -> None:
     await devices.terminal()
-    r = await db_client.get("/api/terminal/ping", headers=headers)
+    r = await admin_client.get("/api/terminal/ping", headers=headers)
     body = await _json(r, 401)
     assert body["code"] == "invalid_device_token"
 
 
-async def test_scheme_must_be_terminal(db_client: httpx.AsyncClient, devices: Devices) -> None:
+async def test_scheme_must_be_terminal(admin_client: httpx.AsyncClient, devices: Devices) -> None:
     _, token = await devices.terminal()
     for scheme in ("Bearer", "Agent", "Basic"):
-        r = await db_client.get(
+        r = await admin_client.get(
             "/api/terminal/ping", headers={"Authorization": f"{scheme} {token}"}
         )
         assert r.status_code == 401, scheme
     # схема без учёта регистра
-    r = await db_client.get("/api/terminal/ping", headers={"Authorization": f"terminal  {token}"})
+    r = await admin_client.get(
+        "/api/terminal/ping", headers={"Authorization": f"terminal  {token}"}
+    )
     assert r.status_code == 200
 
 
-async def test_all_terminal_endpoints_require_a_token(db_client: httpx.AsyncClient) -> None:
+async def test_all_terminal_endpoints_require_a_token(admin_client: httpx.AsyncClient) -> None:
     calls = [
         ("GET", "/api/terminal/ping", {}),
         ("POST", "/api/terminal/scan", {"json": {"raw": "abc"}}),
@@ -235,7 +243,7 @@ async def test_all_terminal_endpoints_require_a_token(db_client: httpx.AsyncClie
         ("GET", "/api/terminal/print-jobs/1", {}),
     ]
     for method, url, kwargs in calls:
-        r = await db_client.request(method, url, **kwargs)
+        r = await admin_client.request(method, url, **kwargs)
         assert r.status_code == 401, url
         assert r.json()["code"] == "invalid_device_token", url
 
@@ -244,7 +252,7 @@ async def test_all_terminal_endpoints_require_a_token(db_client: httpx.AsyncClie
 
 
 async def test_disabled_terminal_gets_423_everywhere(
-    db_client: httpx.AsyncClient, devices: Devices
+    admin_client: httpx.AsyncClient, devices: Devices
 ) -> None:
     _, token = await devices.terminal(enabled=False)
     for method, url, kwargs in [
@@ -252,48 +260,48 @@ async def test_disabled_terminal_gets_423_everywhere(
         ("POST", "/api/terminal/scan", {"json": {"raw": "B24-1001"}}),
         ("GET", "/api/terminal/print-jobs/1", {}),
     ]:
-        r = await db_client.request(method, url, headers=auth(token), **kwargs)
+        r = await admin_client.request(method, url, headers=auth(token), **kwargs)
         body = await _json(r, 423)
         assert body["code"] == "terminal_disabled", url
         assert body["message"] == DISABLED_TEXT, url
 
 
 async def test_terminal_can_be_disabled_and_enabled_again(
-    db_client: httpx.AsyncClient, devices: Devices
+    admin_client: httpx.AsyncClient, devices: Devices
 ) -> None:
     terminal, token = await devices.terminal(name="Т")
-    assert (await db_client.get("/api/terminal/ping", headers=auth(token))).status_code == 200
+    assert (await admin_client.get("/api/terminal/ping", headers=auth(token))).status_code == 200
 
     url = f"/api/admin/terminals/{terminal.id}"
-    await db_client.put(url, headers=CSRF, json={"name": "Т", "enabled": False})
-    assert (await db_client.get("/api/terminal/ping", headers=auth(token))).status_code == 423
+    await admin_client.put(url, headers=CSRF, json={"name": "Т", "enabled": False})
+    assert (await admin_client.get("/api/terminal/ping", headers=auth(token))).status_code == 423
 
-    await db_client.put(url, headers=CSRF, json={"name": "Т", "enabled": True})
-    assert (await db_client.get("/api/terminal/ping", headers=auth(token))).status_code == 200
+    await admin_client.put(url, headers=CSRF, json={"name": "Т", "enabled": True})
+    assert (await admin_client.get("/api/terminal/ping", headers=auth(token))).status_code == 200
 
 
 # --------------------------------------------------------------- last_seen_at
 
 
 async def test_last_seen_is_set_on_first_request(
-    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
+    admin_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
     terminal, token = await devices.terminal()
     assert terminal.last_seen_at is None
-    await db_client.get("/api/terminal/ping", headers=auth(token))
+    await admin_client.get("/api/terminal/ping", headers=auth(token))
     await db.refresh(terminal)
     assert terminal.last_seen_at is not None
 
 
 async def test_last_seen_is_written_at_most_every_10_seconds(
-    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
+    admin_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
     fresh, fresh_token = await devices.terminal(seen_ago_s=3)
     stale, stale_token = await devices.terminal(seen_ago_s=30)
     before = fresh.last_seen_at
 
-    await db_client.get("/api/terminal/ping", headers=auth(fresh_token))
-    await db_client.get("/api/terminal/ping", headers=auth(stale_token))
+    await admin_client.get("/api/terminal/ping", headers=auth(fresh_token))
+    await admin_client.get("/api/terminal/ping", headers=auth(stale_token))
     await db.refresh(fresh)
     await db.refresh(stale)
     assert fresh.last_seen_at == before  # 3 с назад: не трогаем
@@ -302,10 +310,10 @@ async def test_last_seen_is_written_at_most_every_10_seconds(
 
 
 async def test_disabled_terminal_still_reports_last_seen(
-    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
+    admin_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
     terminal, token = await devices.terminal(enabled=False)
-    await db_client.get("/api/terminal/ping", headers=auth(token))
+    await admin_client.get("/api/terminal/ping", headers=auth(token))
     await db.refresh(terminal)
     assert terminal.last_seen_at is not None
 
@@ -332,9 +340,9 @@ async def _ping(client: httpx.AsyncClient, token: str) -> PingOut:
     return PingOut.model_validate_json(r.content)
 
 
-async def test_ping_without_conference(db_client: httpx.AsyncClient, devices: Devices) -> None:
+async def test_ping_without_conference(admin_client: httpx.AsyncClient, devices: Devices) -> None:
     _, token = await devices.terminal("Терминал 2")
-    ping = await _ping(db_client, token)
+    ping = await _ping(admin_client, token)
     assert ping.terminal_name == "Терминал 2"
     assert ping.enabled is True
     assert ping.conference is None
@@ -344,7 +352,7 @@ async def test_ping_without_conference(db_client: httpx.AsyncClient, devices: De
 
 
 async def test_ping_shows_active_conference(
-    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
+    admin_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
     _, token = await devices.terminal()
     old = Conference(
@@ -356,7 +364,7 @@ async def test_ping_shows_active_conference(
     )
     db.add(old)
     await _active_conference(db, "double")
-    ping = await _ping(db_client, token)
+    ping = await _ping(admin_client, token)
     assert ping.conference is not None
     assert ping.conference.title == "Конференция «Инновации-2026»"
     assert ping.conference.badge_type == "double"
@@ -375,7 +383,7 @@ async def test_ping_shows_active_conference(
     ],
 )
 async def test_ping_printer_online(
-    db_client: httpx.AsyncClient,
+    admin_client: httpx.AsyncClient,
     devices: Devices,
     status: str,
     seen_ago_s: float | None,
@@ -383,31 +391,31 @@ async def test_ping_printer_online(
 ) -> None:
     printer, _ = await devices.printer(status=status, seen_ago_s=seen_ago_s)
     _, token = await devices.terminal(printer=printer)
-    assert (await _ping(db_client, token)).printer_online is online
+    assert (await _ping(admin_client, token)).printer_online is online
 
 
 async def test_ping_looks_only_at_own_printer(
-    db_client: httpx.AsyncClient, devices: Devices
+    admin_client: httpx.AsyncClient, devices: Devices
 ) -> None:
     ready, _ = await devices.printer(status="ready", seen_ago_s=1)
     broken, _ = await devices.printer(status="error", seen_ago_s=1)
     _, token_ok = await devices.terminal(printer=ready)
     _, token_bad = await devices.terminal(printer=broken)
-    assert (await _ping(db_client, token_ok)).printer_online is True
-    assert (await _ping(db_client, token_bad)).printer_online is False
+    assert (await _ping(admin_client, token_ok)).printer_online is True
+    assert (await _ping(admin_client, token_bad)).printer_online is False
 
 
 # --------------------------------------------------- токен терминала не открывает API сотрудника
 
 
 async def test_terminal_token_is_not_accepted_by_staff_api_schema(
-    db_client: httpx.AsyncClient,
+    admin_client: httpx.AsyncClient,
 ) -> None:
     """Терминальные и агентские ручки не требуют сессию сотрудника, и наоборот.
 
     Схемы разные: сотрудник — cookie `rs_session`, терминал и агент — заголовок Authorization.
     """
-    schema = (await db_client.get("/openapi.json")).json()
+    schema = (await admin_client.get("/openapi.json")).json()
     for path, methods in schema["paths"].items():
         for method, op in methods.items():
             security = op.get("security", [])
@@ -424,9 +432,6 @@ async def test_terminal_token_is_not_accepted_by_staff_api_schema(
 async def test_terminal_token_does_not_open_staff_api(
     db_client: httpx.AsyncClient, devices: Devices
 ) -> None:
-    probe = await db_client.get("/api/admin/terminals")
-    if probe.status_code == 200:
-        pytest.skip("Вход сотрудника пока заглушка (B1-01): запросы без cookie пропускаются")
     _, token = await devices.terminal()
     for url in ("/api/admin/terminals", "/api/printers", "/api/participants"):
         r = await db_client.get(url, headers=auth(token))
@@ -434,7 +439,7 @@ async def test_terminal_token_does_not_open_staff_api(
 
 
 async def test_terminals_in_db_keep_only_hashes(
-    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
+    admin_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
     _, token = await devices.terminal()
     hashes = (await db.scalars(select(Terminal.token_hash))).all()
