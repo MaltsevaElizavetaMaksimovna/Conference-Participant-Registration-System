@@ -1,0 +1,46 @@
+# Бэкенд системы регистрации участников конференции
+
+Участник сканирует QR-код на терминале, подтверждает данные, принтер печатает наклейку на бейдж.
+Здесь серверная часть (API, база данных) и программа печати для терминалов.
+
+## Стек
+
+Python 3.12, FastAPI, SQLAlchemy 2 (async, psycopg 3), PostgreSQL 16, Alembic, pytest.
+Печать — на Xprinter XP-360B (TSPL).
+
+## Структура
+
+```
+backend/
+  app/          приложение FastAPI (модули по предметным областям)
+  migrations/   миграции Alembic
+  scripts/      запуск локальной БД и сервера
+  tests/        автотесты
+agent/          печать наклеек на терминале
+scripts/        общая проверка проекта
+```
+
+## Запуск (Windows, без Docker)
+
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+python scripts/dev_db.py            # локальный PostgreSQL, печатает DATABASE_URL
+$env:RS_DATABASE_URL = "<URL из вывода>"
+python -m app.cli migrate
+uvicorn app.main:app --loop app.core.loop:selector_loop_factory --reload
+```
+
+Документация API — http://127.0.0.1:8000/docs.
+
+С Docker: `docker compose up`.
+
+## Проверка
+
+```bash
+bash scripts/verify.sh      # ruff, mypy, pytest
+```
+
+Тесты сами поднимают временный PostgreSQL, отдельная база не нужна.
