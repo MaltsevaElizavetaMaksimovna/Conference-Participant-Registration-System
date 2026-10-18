@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     secret_key: str = DEFAULT_SECRET_KEY
     # Список через запятую: RS_CORS_ORIGINS=http://localhost:5173,https://reg.example.ru
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    # Первый администратор: создаётся командой `python -m app.cli bootstrap`, если сотрудников нет
+    bootstrap_admin_login: str | None = None
+    bootstrap_admin_password: str | None = None
 
     # --- «Числа со звёздочкой» из требований (В-13): не зашиваем в код ---
     session_ttl_hours: int = 12  # срок сессии сотрудника
