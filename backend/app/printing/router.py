@@ -1,12 +1,22 @@
-"""Принтеры и агент печати. ЗАГЛУШКИ (B2-02, B2-09, B2-11)."""
+"""Принтеры и агент печати.
 
+Реальные: админка принтеров, `GET /api/printers`, heartbeat агента (B2-01). Задания
+агента (`jobs/next`, `jobs/{id}/result`) пока заглушки (B2-11), но уже под настоящей
+авторизацией агента.
+"""
+
+from enum import Enum
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import STUB_TAG, Limit, Offset, Page, PrinterOut, err
 from app.api.deps import agent, staff
-from app.api.stubs import PNG_1X1_B64, T0
+from app.api.stubs import PNG_1X1_B64
+from app.core.db import get_session
+from app.core.permissions import Permission
+from app.printing import service
 from app.printing.schemas import (
     AgentJob,
     AgentJobCopy,
@@ -16,39 +26,30 @@ from app.printing.schemas import (
     PrinterIn,
     PrinterTokenOut,
 )
+from app.terminals.deps import CurrentAgent, get_current_agent
 
-printers_router = APIRouter(tags=["desk", STUB_TAG])
-admin_router = APIRouter(prefix="/admin/printers", tags=["admin: printers", STUB_TAG])
-agent_router = APIRouter(prefix="/agent", tags=["agent", STUB_TAG])
+printers_router = APIRouter(tags=["desk"])
+admin_router = APIRouter(prefix="/admin/printers", tags=["admin: printers"])
+agent_router = APIRouter(prefix="/agent", tags=["agent"])
 
+Session = Annotated[AsyncSession, Depends(get_session)]
+_STUB: list[str | Enum] = [STUB_TAG]
 
-def _printer(printer_id: int) -> PrinterAdminOut:
-    return PrinterAdminOut(
-        id=printer_id,
-        name=f"Принтер {printer_id}",
-        status="online",
-        last_seen_at=T0,
-        windows_printer_name="XP-360B",
-        dpi=203,
-        token_set=True,
-    )
+_INVALID_TOKEN = (401, "`invalid_device_token`: токен агента отсутствует или неверный")
+_ADMIN = Permission.DEVICES_MANAGE
 
 
 @printers_router.get(
     "/printers",
     operation_id="printers_list",
     summary="Принтеры для выбора в панели",
-    description="Любой вошедший сотрудник (RG-05).",
+    description="Любой вошедший сотрудник (RG-05). `status`: `ready | offline | error | unknown`.",
     response_model=list[PrinterOut],
     dependencies=staff(),
     responses=err(401),
 )
-async def printers_list() -> list[PrinterOut]:
-    return [
-        PrinterOut(id=1, name="Принтер 1", status="online", last_seen_at=T0),
-        PrinterOut(id=2, name="Принтер 2", status="offline", last_seen_at=T0.replace(hour=8)),
-        PrinterOut(id=3, name="Принтер 3", status="unknown", last_seen_at=None),
-    ]
+async def printers_list(session: Session) -> list[PrinterOut]:
+    return [service.printer_out(p) for p in await service.list_printers(session)]
 
 
 @admin_router.get(
@@ -57,54 +58,55 @@ async def printers_list() -> list[PrinterOut]:
     summary="Принтеры (администрирование)",
     description="Разрешение: `devices.manage`.",
     response_model=Page[PrinterAdminOut],
-    dependencies=staff("devices.manage"),
+    dependencies=staff(_ADMIN),
     responses=err(401, 403),
 )
-async def admin_printers_list(limit: Limit = 50, offset: Offset = 0) -> Page[PrinterAdminOut]:
-    items = [_printer(1), _printer(2)]
-    return Page[PrinterAdminOut](items=items[offset : offset + limit], total=len(items))
+async def admin_printers_list(
+    session: Session, limit: Limit = 50, offset: Offset = 0
+) -> Page[PrinterAdminOut]:
+    items, total = await service.list_printers_page(session, limit, offset)
+    return Page[PrinterAdminOut](items=items, total=total)
 
 
 @admin_router.post(
     "",
     operation_id="admin_printers_create",
     summary="Добавить принтер",
-    description="Разрешение: `devices.manage`. Токен агента выдаётся отдельным запросом.",
+    description=(
+        "Разрешение: `devices.manage`. Токен агента выдаётся отдельным запросом. "
+        "Калибровка: `offset_x_mm`, `offset_y_mm` (±50 мм), `density` 0..15, `speed` 1..6."
+    ),
     status_code=201,
     response_model=PrinterAdminOut,
-    dependencies=staff("devices.manage", write=True),
+    dependencies=staff(_ADMIN, write=True),
     responses=err(401, 403, 422, (409, "`name_taken`: принтер с таким именем уже есть")),
 )
-async def admin_printers_create(body: PrinterIn) -> PrinterAdminOut:
-    return _printer(3).model_copy(
-        update={
-            "name": body.name,
-            "windows_printer_name": body.windows_printer_name,
-            "dpi": body.dpi,
-            "status": "unknown",
-            "last_seen_at": None,
-            "token_set": False,
-        }
-    )
+async def admin_printers_create(body: PrinterIn, session: Session) -> PrinterAdminOut:
+    return await service.create_printer(session, body)
 
 
 @admin_router.put(
     "/{printer_id}",
     operation_id="admin_printers_update",
     summary="Изменить принтер",
-    description="Разрешение: `devices.manage`.",
+    description=(
+        "Разрешение: `devices.manage`. Меняются только переданные поля (`name` обязателен), "
+        "так что калибровка не сбрасывается."
+    ),
     response_model=PrinterAdminOut,
-    dependencies=staff("devices.manage", write=True),
-    responses=err(401, 403, 404, 422),
+    dependencies=staff(_ADMIN, write=True),
+    responses=err(
+        401,
+        403,
+        (404, "`printer_not_found`: принтера нет"),
+        422,
+        (409, "`name_taken`: принтер с таким именем уже есть"),
+    ),
 )
-async def admin_printers_update(printer_id: int, body: PrinterIn) -> PrinterAdminOut:
-    return _printer(printer_id).model_copy(
-        update={
-            "name": body.name,
-            "windows_printer_name": body.windows_printer_name,
-            "dpi": body.dpi,
-        }
-    )
+async def admin_printers_update(
+    printer_id: int, body: PrinterIn, session: Session
+) -> PrinterAdminOut:
+    return await service.update_printer(session, printer_id, body)
 
 
 @admin_router.post(
@@ -112,15 +114,15 @@ async def admin_printers_update(printer_id: int, body: PrinterIn) -> PrinterAdmi
     operation_id="admin_printers_token",
     summary="Выдать новый токен агента",
     description=(
-        "Разрешение: `devices.manage`. Токен показывается **один раз**; предыдущий перестаёт "
-        "работать."
+        "Разрешение: `devices.manage`. Токен показывается **один раз** (в базе только его "
+        "хэш); предыдущий перестаёт работать."
     ),
     response_model=PrinterTokenOut,
-    dependencies=staff("devices.manage", write=True),
-    responses=err(401, 403, 404),
+    dependencies=staff(_ADMIN, write=True),
+    responses=err(401, 403, (404, "`printer_not_found`: принтера нет")),
 )
-async def admin_printers_token(printer_id: int) -> PrinterTokenOut:
-    return PrinterTokenOut(id=printer_id, token="agt_Zk3x9QnS7Vb2LmT4Zk3x9QnS7Vb2LmT4")
+async def admin_printers_token(printer_id: int, session: Session) -> PrinterTokenOut:
+    return await service.issue_agent_token(session, printer_id)
 
 
 @agent_router.get(
@@ -135,9 +137,10 @@ async def admin_printers_token(printer_id: int) -> PrinterTokenOut:
     response_model=AgentJob,
     responses={
         204: {"description": "За `wait` секунд заданий не появилось"},
-        **err((401, "`unauthenticated`: неверный токен агента")),
+        **err(_INVALID_TOKEN),
     },
     dependencies=agent(),
+    tags=_STUB,
 )
 async def agent_jobs_next(
     wait: Annotated[
@@ -158,7 +161,8 @@ async def agent_jobs_next(
     status_code=204,
     response_class=Response,
     dependencies=agent(),
-    responses=err(401, 404, 422),
+    responses=err(_INVALID_TOKEN, 404, 422),
+    tags=_STUB,
 )
 async def agent_job_result(job_id: int, body: AgentResultIn) -> None:
     return None
@@ -168,14 +172,22 @@ async def agent_job_result(job_id: int, body: AgentResultIn) -> None:
     "/heartbeat",
     operation_id="agent_heartbeat",
     summary="Heartbeat агента и состояние принтера",
-    description="`Authorization: Agent <token>`. Раз в несколько секунд: по нему видно «на связи».",
+    description=(
+        "`Authorization: Agent <token>`. Раз в несколько секунд: обновляет статус принтера "
+        "(`ready | offline | error | unknown`) и время последней связи. Терминал считает "
+        "принтер «на связи», если heartbeat со статусом `ready` пришёл не позже 30 с назад."
+    ),
     status_code=204,
     response_class=Response,
     dependencies=agent(),
-    responses=err(401, 422),
+    responses=err(_INVALID_TOKEN, 422),
 )
-async def agent_heartbeat(body: HeartbeatIn) -> None:
-    return None
+async def agent_heartbeat(
+    body: HeartbeatIn,
+    session: Session,
+    current: CurrentAgent = Depends(get_current_agent),
+) -> None:
+    await service.record_heartbeat(session, current.printer_id, body.printer_status)
 
 
 router = APIRouter()

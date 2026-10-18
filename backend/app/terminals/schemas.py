@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.common import BadgeType, PrintJobStatus
 
@@ -108,9 +108,23 @@ class TerminalOut(BaseModel):
 
 
 class TerminalIn(BaseModel):
-    name: str = Field(min_length=1, max_length=100, examples=["Терминал 2"])
-    enabled: bool = True
-    printer_id: int | None = None
+    """Создание и изменение. В `PUT` меняются только переданные поля (кроме `name`)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Название терминала; попадает в отметку о регистрации. Уникально",
+        examples=["Терминал 2"],
+    )
+    enabled: bool = Field(
+        default=True, description="false — терминал не принимает коды (423 terminal_disabled)"
+    )
+    printer_id: int | None = Field(
+        default=None,
+        description="Принтер терминала: терминал печатает только на него. null — не привязан",
+    )
 
 
 class TerminalTokenOut(BaseModel):

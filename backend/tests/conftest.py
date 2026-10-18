@@ -8,11 +8,13 @@ RS_DATABASE_URL задан (CI) -> используем его. Иначе на 
 """
 
 import asyncio
+import itertools
 import os
 import sys
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import psycopg
@@ -23,8 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cli import migrate
 from app.core.config import Settings
-from app.core.db import make_engine
+from app.core.db import get_session, make_engine
 from app.main import create_app
+from app.models.device import Printer, Terminal
+from app.terminals.tokens import AGENT_PREFIX, TERMINAL_PREFIX, generate_token, hash_token
 
 TEST_DB = "regsys_test"
 
@@ -119,3 +123,78 @@ async def db(database_url: str) -> AsyncIterator[AsyncSession]:
                 await outer.rollback()
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+async def db_client(
+    app: FastAPI, db: AsyncSession, client: httpx.AsyncClient
+) -> AsyncIterator[httpx.AsyncClient]:
+    """HTTP-клиент, чьи запросы работают в сессии `db` (после теста всё откатывается)."""
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        yield db
+
+    app.dependency_overrides[get_session] = _session
+    yield client
+    app.dependency_overrides.pop(get_session, None)
+
+
+class Devices:
+    """Фабрика терминалов и принтеров с токенами для тестов."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+        self._n = itertools.count(1)
+
+    async def printer(
+        self,
+        name: str | None = None,
+        *,
+        token: bool = True,
+        status: str = "unknown",
+        seen_ago_s: float | None = None,
+        **fields: object,
+    ) -> tuple[Printer, str]:
+        """(принтер, токен агента); токен пустой, если `token=False`."""
+        raw = generate_token(AGENT_PREFIX) if token else ""
+        printer = Printer(
+            name=name or f"Принтер {next(self._n)}",
+            agent_token_hash=hash_token(raw) if token else None,
+            status=status,
+            last_seen_at=None if seen_ago_s is None else _ago(seen_ago_s),
+            **fields,
+        )
+        self._db.add(printer)
+        await self._db.commit()
+        return printer, raw
+
+    async def terminal(
+        self,
+        name: str | None = None,
+        *,
+        token: bool = True,
+        enabled: bool = True,
+        printer: Printer | None = None,
+        seen_ago_s: float | None = None,
+    ) -> tuple[Terminal, str]:
+        """(терминал, токен); токен пустой, если `token=False`."""
+        raw = generate_token(TERMINAL_PREFIX) if token else ""
+        terminal = Terminal(
+            name=name or f"Терминал {next(self._n)}",
+            token_hash=hash_token(raw) if token else None,
+            is_enabled=enabled,
+            printer_id=printer.id if printer else None,
+            last_seen_at=None if seen_ago_s is None else _ago(seen_ago_s),
+        )
+        self._db.add(terminal)
+        await self._db.commit()
+        return terminal, raw
+
+
+def _ago(seconds: float) -> datetime:
+    return datetime.now(UTC) - timedelta(seconds=seconds)
+
+
+@pytest.fixture
+def devices(db: AsyncSession) -> Devices:
+    return Devices(db)

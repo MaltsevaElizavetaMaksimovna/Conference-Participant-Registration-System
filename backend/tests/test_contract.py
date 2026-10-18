@@ -5,9 +5,10 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from pydantic import TypeAdapter
 
-from app.api.common import ErrorOut, Page, PrinterOut, PrintJobRefOut
+from app.api.common import ErrorOut, Page, PrintJobRefOut
 from app.auth.schemas import MeOut
 from app.badges.schemas import ProfileActive, ProfileRevoked
 from app.conferences.schemas import ConferenceOut
@@ -19,11 +20,17 @@ from app.participants.schemas import (
     ParticipantShort,
     ParticipantStats,
 )
-from app.printing.schemas import AgentJob, PrinterAdminOut, PrinterTokenOut
+from app.printing.schemas import AgentJob
 from app.realtime.schemas import StatsEvent
 from app.registration.schemas import PrintJobOut, RegisterOut
 from app.roles.schemas import PermissionOut, RoleOut, UserOut
 from app.templates.schemas import OverflowItem, TemplateElement, TemplateOut
+from app.terminals.deps import (
+    CurrentAgent,
+    CurrentTerminal,
+    get_current_agent,
+    get_current_terminal,
+)
 from app.terminals.schemas import (
     ConfirmOut,
     PingOut,
@@ -32,9 +39,7 @@ from app.terminals.schemas import (
     ScanFound,
     ScanNotFound,
     ScanOut,
-    TerminalOut,
     TerminalPrintJobOut,
-    TerminalTokenOut,
 )
 
 # Параметры пути записаны как `{}`.
@@ -116,6 +121,36 @@ CSRF = {"X-Requested-With": "rs"}
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 JPEG_MAGIC = b"\xff\xd8\xff"
 
+# Эндпоинты с настоящей логикой (проверяются в test_terminals.py, test_printers.py,
+# test_agent_auth.py): у них нет тега `stub`, заглушками их здесь не гоняем.
+REAL: set[tuple[str, str]] = {
+    ("GET", "/api/printers"),
+    ("GET", "/api/admin/terminals"),
+    ("POST", "/api/admin/terminals"),
+    ("PUT", "/api/admin/terminals/{}"),
+    ("POST", "/api/admin/terminals/{}/token"),
+    ("GET", "/api/admin/printers"),
+    ("POST", "/api/admin/printers"),
+    ("PUT", "/api/admin/printers/{}"),
+    ("POST", "/api/admin/printers/{}/token"),
+    ("GET", "/api/terminal/ping"),
+    ("POST", "/api/agent/heartbeat"),
+}
+
+
+@pytest.fixture(autouse=True)
+def _stub_device_auth(app: FastAPI) -> None:
+    """Заглушки терминала и агента не ходят в БД: проверку токена подменяем."""
+
+    async def terminal() -> CurrentTerminal:
+        return CurrentTerminal(terminal_id=1, name="Терминал 1", printer_id=1)
+
+    async def agent() -> CurrentAgent:
+        return CurrentAgent(printer_id=1, name="Принтер 1")
+
+    app.dependency_overrides[get_current_terminal] = terminal
+    app.dependency_overrides[get_current_agent] = agent
+
 
 async def get_openapi(client: httpx.AsyncClient) -> dict[str, Any]:
     r = await client.get("/openapi.json")
@@ -154,8 +189,8 @@ async def test_every_operation_is_tagged_and_named(client: httpx.AsyncClient) ->
     declared = {t["name"] for t in schema["tags"]}
     for (method, path), op in ops.items():
         where = f"{method} {path}"
-        assert "stub" in op["tags"], where
-        assert len(op["tags"]) >= 2, where
+        assert ("stub" in op["tags"]) != ((method, path) in REAL), where
+        assert len(op["tags"]) >= (1 if (method, path) in REAL else 2), where
         assert set(op["tags"]) <= declared, where
         assert re.fullmatch(r"[a-z][a-z0-9]*(_[a-z0-9]+)*", op["operationId"]), where
         assert op.get("summary"), where
@@ -424,7 +459,6 @@ CASES: list[Case] = [
     ("reprint", "POST", "/api/participants/17/reprint", {}, 200, PrintJobRefOut),
     ("foreign", "POST", "/api/participants/17/foreign-code", {}, 200, PrintJobRefOut),
     ("print_job", "GET", "/api/print-jobs/501", {}, 200, PrintJobOut),
-    ("printers", "GET", "/api/printers", {}, 200, list[PrinterOut]),
     # templates
     ("tpl_list", "GET", "/api/admin/conferences/1/templates", {}, 200, Page[TemplateOut]),
     (
@@ -469,38 +503,7 @@ CASES: list[Case] = [
         200,
         PrintJobRefOut,
     ),
-    # admin terminals / printers
-    ("term_list", "GET", "/api/admin/terminals", {}, 200, Page[TerminalOut]),
-    (
-        "term_create",
-        "POST",
-        "/api/admin/terminals",
-        {"json": {"name": "Терминал 3"}},
-        201,
-        TerminalOut,
-    ),
-    (
-        "term_update",
-        "PUT",
-        "/api/admin/terminals/2",
-        {"json": {"name": "Т2", "enabled": False}},
-        200,
-        TerminalOut,
-    ),
-    ("term_token", "POST", "/api/admin/terminals/2/token", {}, 200, TerminalTokenOut),
-    ("prn_list", "GET", "/api/admin/printers", {}, 200, Page[PrinterAdminOut]),
-    (
-        "prn_create",
-        "POST",
-        "/api/admin/printers",
-        {"json": {"name": "Принтер 4"}},
-        201,
-        PrinterAdminOut,
-    ),
-    ("prn_update", "PUT", "/api/admin/printers/1", {"json": {"name": "П1"}}, 200, PrinterAdminOut),
-    ("prn_token", "POST", "/api/admin/printers/1/token", {}, 200, PrinterTokenOut),
     # terminal
-    ("t_ping", "GET", "/api/terminal/ping", {"headers": TERMINAL}, 200, PingOut),
     (
         "t_confirm",
         "POST",
@@ -536,14 +539,6 @@ CASES: list[Case] = [
         "POST",
         "/api/agent/jobs/501/result",
         {"headers": AGENT, "json": {"ok": False, "error": "Нет ленты"}},
-        204,
-        None,
-    ),
-    (
-        "a_heartbeat",
-        "POST",
-        "/api/agent/heartbeat",
-        {"headers": AGENT, "json": {"printer_status": "online"}},
         204,
         None,
     ),
@@ -642,22 +637,8 @@ async def test_confirm_registered_has_print_job(client: httpx.AsyncClient) -> No
     assert body.print_job_id is not None
 
 
-@pytest.mark.parametrize(
-    ("method", "url", "kwargs"),
-    [
-        ("GET", "/api/terminal/ping", {}),
-        ("POST", "/api/terminal/scan", {"json": {"raw": "abc"}}),
-        ("GET", "/api/terminal/print-jobs/1", {}),
-    ],
-)
-async def test_terminal_disabled_returns_423(
-    client: httpx.AsyncClient, method: str, url: str, kwargs: dict[str, Any]
-) -> None:
-    r = await client.request(method, url, headers={"Authorization": "Terminal disabled"}, **kwargs)
-    assert r.status_code == 423
-    err = ErrorOut.model_validate_json(r.content)
-    assert err.code == "terminal_disabled"
-    assert err.message == "Терминал не работает, воспользуйтесь соседним"
+# Отключённый терминал (423) и неверные токены проверяются по-настоящему в test_terminals.py
+# и test_agent_auth.py.
 
 
 # ---------------------------------------------------------------- профиль

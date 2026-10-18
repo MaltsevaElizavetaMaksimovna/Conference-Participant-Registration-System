@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     public_profile_rate_limit_per_min: int = 30
     import_max_file_mb: int = 10
     import_max_rows: int = 5000
+    # Терминалы и принтеры (B2-01)
+    device_last_seen_throttle_s: int = 10  # last_seen_at терминала пишем не чаще раза в N с
+    printer_online_timeout_s: int = 30  # принтер «на связи», если heartbeat не старше N с
 
     @field_validator("cors_origins", mode="before")
     @classmethod
