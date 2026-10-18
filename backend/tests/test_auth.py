@@ -19,19 +19,6 @@ from tests.conftest import LoginAs, create_role, create_user
 REGISTRAR = ("participants.view", "registration.desk", "stickers.print")
 
 
-async def _anon(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
-    )
-
-
-@pytest.fixture
-async def anon(app_db: FastAPI):  # type: ignore[no-untyped-def]
-    client = await _anon(app_db)
-    yield client
-    await client.aclose()
-
-
 async def _make_user(db: AsyncSession, *, blocked: bool = False) -> StaffUser:
     role = await create_role(db, None, *REGISTRAR)
     return await create_user(db, role, "Reg.One", "correct-password", blocked=blocked)
