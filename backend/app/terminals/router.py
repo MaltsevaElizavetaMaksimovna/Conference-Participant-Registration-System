@@ -17,6 +17,7 @@ from app.core.db import get_session
 from app.core.permissions import Permission
 from app.terminals import service
 from app.terminals.deps import CurrentTerminal, get_current_terminal
+from app.terminals.scan_code import extract_invite_id, is_badge_link, normalize_scan
 from app.terminals.schemas import (
     ConfirmIn,
     ConfirmOut,
@@ -86,9 +87,21 @@ async def terminal_ping(
     responses=err(_INVALID_TOKEN, 422, _DISABLED),
     tags=_STUB,
 )
-async def terminal_scan(body: ScanIn) -> ScanFound | ScanNotFound | ScanAlreadyRegistered:
+async def terminal_scan(
+    body: ScanIn, request: Request
+) -> ScanFound | ScanNotFound | ScanAlreadyRegistered:
+    settings: Settings = request.app.state.settings
+    normalized = normalize_scan(body.raw)
     not_found = ScanNotFound(result="not_found", message=_NOT_FOUND_TEXT)
-    raw = body.raw.lower()
+    if is_badge_link(normalized, settings.public_base_url):
+        return not_found
+    # TODO B2-03: регулярка активной конференции (`conference.invite_id_regex`) главнее
+    invite_id = extract_invite_id(normalized, settings.invite_id_regex or None)
+    if invite_id is None:
+        return not_found
+    # TODO B2-03: искать участника по external_id активной конференции вместо заглушки ниже
+
+    raw = normalized.lower()
     if "notfound" in raw:
         return not_found
     if "again" in raw:

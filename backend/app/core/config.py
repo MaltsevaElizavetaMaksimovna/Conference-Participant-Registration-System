@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     device_last_seen_throttle_s: int = 10  # last_seen_at терминала пишем не чаще раза в N с
     printer_online_timeout_s: int = 30  # принтер «на связи», если heartbeat не старше N с
 
+    # --- Сканирование QR (B2-02) ---
+    # Регулярка для извлечения ID участника из ссылки приглашения (первая группа = ID).
+    # Формат реальных приглашений пока неизвестен (В-04); переопределяется у конференции
+    # (`conference.invite_id_regex`). Пусто — разбор по умолчанию (query-параметр или путь).
+    invite_id_regex: str | None = None
+    # Публичный адрес системы (ссылка на наклейке: `<адрес>/p/<token>`). Нужен, чтобы узнать
+    # QR с наклейки и не принять его за приглашение.
+    public_base_url: str | None = None
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
