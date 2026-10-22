@@ -1,82 +1,71 @@
-"""Конференции (AD-01). ЗАГЛУШКИ (B1-04)."""
+"""Конференции (AD-01, B1-04)."""
 
-from datetime import date
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import APIRouter
-
-from app.api.common import STUB_TAG, Limit, Offset, Page, err
+from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
-from app.api.stubs import T0
+from app.conferences import service
 from app.conferences.schemas import ConferenceIn, ConferenceOut
+from app.core.db import get_session
 
-router = APIRouter(prefix="/admin/conferences", tags=["admin: conferences", STUB_TAG])
+router = APIRouter(prefix="/admin/conferences", tags=["admin: conferences"])
 
-
-def _conf(conf_id: int, *, active: bool, title: str = "Демо-конференция") -> ConferenceOut:
-    return ConferenceOut(
-        id=conf_id,
-        title=title,
-        date_from=date(2026, 11, 20),
-        date_to=date(2026, 11, 21),
-        badge_type="single",
-        front_template_id=1,
-        back_template_id=None,
-        changed_template_id=2,
-        changed_back_template_id=None,
-        invite_id_regex=None,
-        is_active=active,
-        participants_total=300,
-        created_at=T0,
-    )
+_NOT_FOUND = (404, "`conference_not_found`: конференции нет")
+_TEMPLATES = (
+    "Шаблон привязывается только после создания конференции, должен принадлежать ей и иметь "
+    "вид `front`/`back`/`changed`/`changed_back` соответственно полю."
+)
 
 
 @router.get(
     "",
     operation_id="conferences_list",
     summary="Список конференций",
-    description="Разрешение: `conferences.manage`.",
+    description="Разрешение: `conferences.manage`. Сначала новые.",
     response_model=Page[ConferenceOut],
     dependencies=staff("conferences.manage"),
     responses=err(401, 403),
 )
-async def conferences_list(limit: Limit = 50, offset: Offset = 0) -> Page[ConferenceOut]:
-    items = [_conf(1, active=True), _conf(2, active=False, title="Прошлогодняя конференция")]
-    return Page[ConferenceOut](items=items[offset : offset + limit], total=len(items))
+async def conferences_list(
+    limit: Limit = 50, offset: Offset = 0, session: AsyncSession = Depends(get_session)
+) -> Page[ConferenceOut]:
+    items, total = await service.list_conferences(session, limit, offset)
+    return Page[ConferenceOut](items=items, total=total)
 
 
 @router.post(
     "",
     operation_id="conferences_create",
     summary="Создать конференцию",
-    description="Разрешение: `conferences.manage`. Новая конференция неактивна.",
+    description=(
+        "Разрешение: `conferences.manage`. Новая конференция неактивна; шаблоны к ней "
+        "привязываются после создания (`PUT`)."
+    ),
     status_code=201,
     response_model=ConferenceOut,
     dependencies=staff("conferences.manage", write=True),
     responses=err(401, 403, 422),
 )
-async def conferences_create(body: ConferenceIn) -> ConferenceOut:
-    return ConferenceOut(
-        **body.model_dump(), id=3, is_active=False, participants_total=0, created_at=T0
-    )
+async def conferences_create(
+    body: ConferenceIn, session: AsyncSession = Depends(get_session)
+) -> ConferenceOut:
+    return await service.create_conference(session, body)
 
 
 @router.put(
     "/{conference_id}",
     operation_id="conferences_update",
     summary="Изменить конференцию",
-    description="Разрешение: `conferences.manage`.",
+    description=f"Разрешение: `conferences.manage`. {_TEMPLATES}",
     response_model=ConferenceOut,
     dependencies=staff("conferences.manage", write=True),
-    responses=err(401, 403, 404, 422),
+    responses=err(401, 403, _NOT_FOUND, 422),
 )
-async def conferences_update(conference_id: int, body: ConferenceIn) -> ConferenceOut:
-    return ConferenceOut(
-        **body.model_dump(),
-        id=conference_id,
-        is_active=conference_id == 1,
-        participants_total=300,
-        created_at=T0,
-    )
+async def conferences_update(
+    conference_id: int, body: ConferenceIn, session: AsyncSession = Depends(get_session)
+) -> ConferenceOut:
+    return await service.update_conference(session, conference_id, body)
 
 
 @router.post(
@@ -85,11 +74,13 @@ async def conferences_update(conference_id: int, body: ConferenceIn) -> Conferen
     summary="Сделать конференцию активной",
     description=(
         "Разрешение: `conferences.manage`. Атомарно: предыдущая активная становится неактивной. "
-        "Терминалы и панель работают с активной конференцией."
+        "Терминалы и панель работают с активной конференцией; данные прошлых сохраняются."
     ),
     response_model=ConferenceOut,
     dependencies=staff("conferences.manage", write=True),
-    responses=err(401, 403, 404),
+    responses=err(401, 403, _NOT_FOUND),
 )
-async def conferences_activate(conference_id: int) -> ConferenceOut:
-    return _conf(conference_id, active=True)
+async def conferences_activate(
+    conference_id: int, session: AsyncSession = Depends(get_session)
+) -> ConferenceOut:
+    return await service.activate_conference(session, conference_id)
