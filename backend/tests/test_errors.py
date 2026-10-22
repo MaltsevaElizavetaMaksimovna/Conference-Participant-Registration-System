@@ -56,6 +56,17 @@ async def test_405_format(client: httpx.AsyncClient) -> None:
     assert r.json()["code"] == "method_not_allowed"
 
 
+async def test_invalid_body_is_russian(client: httpx.AsyncClient) -> None:
+    # Тело в cp1251 вместо UTF-8: так шлёт, например, консоль Windows
+    body = '{"name": "Иван", "qty": 1}'.encode("cp1251")
+    r = await client.post("/_t/items", content=body, headers={"Content-Type": "application/json"})
+    assert r.status_code == 400
+    data = r.json()
+    assert_error_shape(data)
+    assert data["code"] == "invalid_body"
+    assert "UTF-8" in data["message"]
+
+
 async def test_validation_error(client: httpx.AsyncClient) -> None:
     r = await client.post("/_t/items", json={"name": "", "qty": "abc"})
     assert r.status_code == 422
