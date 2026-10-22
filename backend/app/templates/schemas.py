@@ -70,7 +70,10 @@ class OverflowItem(BaseModel):
     field: str = Field(
         description="Поле шаблона, которое не поместилось", examples=["organization"]
     )
-    text: str = Field(examples=["Общество с ограниченной ответственностью «Ромашка»"])
+    value: str = Field(
+        description="Значение поля, которое не поместилось",
+        examples=["Общество с ограниченной ответственностью «Ромашка»"],
+    )
 
 
 class TemplateTestPrintIn(BaseModel):
@@ -78,3 +81,38 @@ class TemplateTestPrintIn(BaseModel):
         default=None, description="Чьими данными печатать; null — образцом", examples=[17]
     )
     printer_id: int = Field(examples=[1])
+
+
+class TemplateSaveOut(TemplateOut):
+    """Ответ на сохранение шаблона: сам шаблон и участники, которые в него не помещаются (PR-03)."""
+
+    overflow: list[OverflowItem] = Field(
+        description="Данные, которые не помещаются даже минимальным кеглем; пусто — всё влезает"
+    )
+
+
+class OverflowOut(BaseModel):
+    """Ответ `GET .../overflow`: тот же список, что в `overflow` при сохранении."""
+
+    items: list[OverflowItem]
+
+
+TemplateFieldGroup = Literal["standard", "english", "extra", "special"]
+
+
+class TemplateFieldOut(BaseModel):
+    """Поле, которое можно поставить в элемент шаблона (`elements[].field`)."""
+
+    key: str = Field(
+        description="Значение для `elements[].field`; доп. поля — `extra.<ключ>`",
+        examples=["last_name"],
+    )
+    label: str = Field(description="Название для выпадающего списка", examples=["Фамилия"])
+    group: TemplateFieldGroup = Field(
+        description=(
+            "`standard` — стандартные поля участника, `english` — их английские версии "
+            "(`_en`), `extra` — дополнительные поля конференции, `special` — `full_name`, "
+            "`qr` и `text`"
+        ),
+        examples=["standard"],
+    )

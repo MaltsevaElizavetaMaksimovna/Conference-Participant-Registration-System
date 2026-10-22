@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
 from app.conferences import service
-from app.conferences.schemas import ConferenceIn, ConferenceOut
+from app.conferences.schemas import ActiveConferenceOut, ConferenceIn, ConferenceOut
 from app.core.db import get_session
 
 router = APIRouter(prefix="/admin/conferences", tags=["admin: conferences"])
+active_router = APIRouter(prefix="/conferences", tags=["conferences"])
 
 _NOT_FOUND = (404, "`conference_not_found`: конференции нет")
 _TEMPLATES = (
@@ -32,6 +33,21 @@ async def conferences_list(
 ) -> Page[ConferenceOut]:
     items, total = await service.list_conferences(session, limit, offset)
     return Page[ConferenceOut](items=items, total=total)
+
+
+@router.get(
+    "/{conference_id}",
+    operation_id="conferences_get",
+    summary="Конференция",
+    description="Разрешение: `conferences.manage`. Одна конференция по id, как в списке.",
+    response_model=ConferenceOut,
+    dependencies=staff("conferences.manage"),
+    responses=err(401, 403, _NOT_FOUND),
+)
+async def conferences_get(
+    conference_id: int, session: AsyncSession = Depends(get_session)
+) -> ConferenceOut:
+    return await service.get_conference(session, conference_id)
 
 
 @router.post(
@@ -84,3 +100,21 @@ async def conferences_activate(
     conference_id: int, session: AsyncSession = Depends(get_session)
 ) -> ConferenceOut:
     return await service.activate_conference(session, conference_id)
+
+
+@active_router.get(
+    "/active",
+    operation_id="conferences_active",
+    summary="Активная конференция",
+    description=(
+        "Любой вошедший сотрудник (разрешения не нужны). Название, даты и тип бейджа "
+        "активной конференции для шапки панели; `null`, если ни одна не активирована."
+    ),
+    response_model=ActiveConferenceOut | None,
+    dependencies=staff(),
+    responses=err(401),
+)
+async def conferences_active(
+    session: AsyncSession = Depends(get_session),
+) -> ActiveConferenceOut | None:
+    return await service.get_active(session)

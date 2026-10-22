@@ -10,16 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import health
 from app.auth.router import router as auth_router
 from app.badges.router import router as badges_router
+from app.conferences.router import active_router as active_conference_router
 from app.conferences.router import router as conferences_router
 from app.core.config import Settings, get_settings
 from app.core.db import make_engine, make_sessionmaker
 from app.core.errors import register_error_handlers
+from app.eventlog.router import router as eventlog_router
 from app.imports.router import router as imports_router
 from app.participants.router import router as participants_router
 from app.printing.router import router as printing_router
 from app.realtime.router import router as realtime_router
 from app.registration.router import router as registration_router
 from app.roles.router import router as roles_router
+from app.templates.router import fields_router as template_fields_router
 from app.templates.router import router as templates_router
 from app.terminals.router import router as terminals_router
 
@@ -63,10 +66,15 @@ OPENAPI_TAGS: list[dict[str, Any]] = [
     {"name": "admin: users", "description": "Учётные записи сотрудников (AD-03)."},
     {"name": "admin: conferences", "description": "Конференции и активация (AD-01)."},
     {
+        "name": "conferences",
+        "description": "Активная конференция для шапки панели (любой сотрудник).",
+    },
+    {
         "name": "admin: imports",
         "description": "Импорт участников из Excel и Битрикс24 (IM-01..04).",
     },
     {"name": "admin: templates", "description": "Шаблоны наклеек, предпросмотр, пробная печать."},
+    {"name": "admin: events", "description": "Журнал событий активной конференции."},
     {"name": "admin: terminals", "description": "Терминалы самообслуживания и их токены (AD-02)."},
     {"name": "admin: printers", "description": "Принтеры и токены агентов печати (AD-02)."},
     {"name": "participants", "description": "Список, поиск, карточка и правка участников."},
@@ -156,12 +164,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         auth_router,
         roles_router,
         conferences_router,
+        active_conference_router,
         imports_router,
+        eventlog_router,
         participants_router,
         realtime_router,
         registration_router,
         printing_router,
         templates_router,
+        template_fields_router,
         terminals_router,
         badges_router,
     ):

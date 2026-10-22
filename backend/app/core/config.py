@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import field_validator, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_SECRET_KEY = "dev-secret-change-me"
@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Публичный адрес системы (ссылка на наклейке: `<адрес>/p/<token>`). Нужен, чтобы узнать
     # QR с наклейки и не принять его за приглашение.
     public_base_url: str | None = None
+
+    # --- Битрикс24 (IM-04) ---
+    # URL входящего вебхука содержит секрет: задаётся только в окружении, через API не
+    # передаётся и не отдаётся; фронту известно лишь, настроен ли он (`webhook_configured`).
+    bitrix_webhook_url: SecretStr | None = None
 
     # --- Регистрация на терминале (B2-03..05) ---
     # Часовой пояс мероприятия: в нём показывается время регистрации в сообщениях терминала

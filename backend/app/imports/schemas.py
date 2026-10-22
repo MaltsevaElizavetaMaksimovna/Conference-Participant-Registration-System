@@ -1,9 +1,9 @@
 """Схемы импорта участников из Excel и Битрикс24 (IM-01..IM-04)."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 ImportSource = Literal["file", "bitrix"]
 ImportStatus = Literal["running", "done", "failed"]
@@ -78,3 +78,70 @@ class ImportReportOut(BaseModel):
     warnings: list[str] = Field(description="Замечания, не мешающие загрузке")
     started_at: datetime = Field(examples=["2026-11-19T18:00:00+03:00"])
     finished_at: datetime | None = Field(examples=["2026-11-19T18:00:07+03:00"])
+
+
+class ImportBatchShort(BaseModel):
+    """Строка списка загрузок; полный отчёт — `GET .../imports/{id}`."""
+
+    id: int = Field(examples=[12])
+    source: ImportSource
+    file_name: str | None = Field(
+        description="Имя файла; у загрузки из Битрикс24 — null", examples=["participants.xlsx"]
+    )
+    status: ImportStatus
+    created_at: datetime = Field(
+        description="Когда загрузка началась", examples=["2026-11-19T18:00:00+03:00"]
+    )
+    finished_at: datetime | None = Field(examples=["2026-11-19T18:00:07+03:00"])
+    user_login: str | None = Field(
+        description="Кто запустил; null, если сотрудник удалён или загрузка по расписанию",
+        examples=["admin"],
+    )
+    loaded: int = Field(description="Добавлено новых участников", examples=[300])
+    updated: int = Field(description="Обновлено существующих участников", examples=[0])
+    skipped: int = Field(description="Пропущено строк", examples=[0])
+
+
+BitrixEntity = Literal["contact", "deal", "smart_process"]
+
+
+class BitrixSettingsIn(BaseModel):
+    """Настройки загрузки из Битрикс24. URL вебхука сюда не входит: он задаётся в окружении."""
+
+    entity: BitrixEntity = Field(
+        description="Откуда брать участников: контакты, сделки или смарт-процесс",
+        examples=["contact"],
+    )
+    entity_type_id: int | None = Field(
+        default=None,
+        description="Идентификатор типа смарт-процесса; обязателен при `entity=smart_process`",
+        examples=[None],
+        validate_default=True,
+    )
+    filter: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Фильтр выборки в формате Битрикс24 (`crm.*.list`)",
+        examples=[{"=SOURCE_ID": "WEB"}],
+    )
+    field_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Соответствие «системное поле: поле Битрикс24»",
+        examples=[{"last_name": "LAST_NAME", "first_name": "NAME", "external_id": "ID"}],
+    )
+
+    @field_validator("entity_type_id")
+    @classmethod
+    def _smart_process_needs_type(cls, v: int | None, info: ValidationInfo) -> int | None:
+        if v is None and info.data.get("entity") == "smart_process":
+            raise ValueError("Укажите тип смарт-процесса")
+        return v
+
+
+class BitrixSettingsOut(BitrixSettingsIn):
+    webhook_configured: bool = Field(
+        description=(
+            "Задан ли вебхук Битрикс24 на сервере (`RS_BITRIX_WEBHOOK_URL`). "
+            "Сам адрес API никогда не отдаёт и не принимает"
+        ),
+        examples=[True],
+    )
