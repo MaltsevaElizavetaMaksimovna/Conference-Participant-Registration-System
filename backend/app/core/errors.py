@@ -12,6 +12,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 log = logging.getLogger("app.errors")
 
 _HTTP_ERRORS: dict[int, tuple[str, str]] = {
+    # 400 от фреймворка — тело не разобралось (не JSON или не UTF-8); его текст английский
+    400: ("invalid_body", "Не удалось прочитать тело запроса: нужен JSON в кодировке UTF-8"),
     401: ("unauthorized", "Требуется вход в систему"),
     403: ("forbidden", "Недостаточно прав"),
     404: ("not_found", "Не найдено"),
@@ -78,7 +80,11 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
         e.status_code, ("http_error", HTTPStatus(e.status_code).phrase)
     )
     # Свой текст (не стандартная фраза Starlette) оставляем как есть
-    if isinstance(e.detail, str) and e.detail != HTTPStatus(e.status_code).phrase:
+    if (
+        e.status_code != 400
+        and isinstance(e.detail, str)
+        and e.detail != HTTPStatus(e.status_code).phrase
+    ):
         message = e.detail
     headers = dict(e.headers) if e.headers else None
     return error_response(e.status_code, code, message, headers=headers)
