@@ -33,7 +33,6 @@ from app.terminals.deps import (
 )
 from app.terminals.schemas import (
     PingOut,
-    ReportErrorOut,
     ScanAlreadyRegistered,
     ScanFound,
     ScanNotFound,
@@ -143,6 +142,7 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/terminal/ping"),
     ("POST", "/api/terminal/scan"),
     ("POST", "/api/terminal/confirm"),
+    ("POST", "/api/terminal/report-error"),
     ("POST", "/api/agent/heartbeat"),
 }
 
@@ -498,14 +498,6 @@ CASES: list[Case] = [
     ),
     # terminal
     (
-        "t_report",
-        "POST",
-        "/api/terminal/report-error",
-        {"headers": TERMINAL, "json": {"participant_id": 17, "scan_id": "scan_1"}},
-        200,
-        ReportErrorOut,
-    ),
-    (
         "t_print_job",
         "GET",
         "/api/terminal/print-jobs/501",
@@ -574,9 +566,6 @@ async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
     job = AgentJob.model_validate_json(r.content)
     assert job.copies
     assert base64.b64decode(job.copies[0].png_base64).startswith(PNG_MAGIC)
-
-
-# --------------------------------------------------------------------- scan
 
 
 # Отключённый терминал (423) и неверные токены проверяются по-настоящему в test_terminals.py

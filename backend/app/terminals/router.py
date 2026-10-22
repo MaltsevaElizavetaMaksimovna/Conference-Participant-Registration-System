@@ -15,7 +15,7 @@ from app.api.deps import staff, terminal
 from app.core.config import Settings
 from app.core.db import get_session
 from app.core.permissions import Permission
-from app.terminals import confirm_flow, scan_flow, service
+from app.terminals import confirm_flow, report_flow, scan_flow, service
 from app.terminals.deps import CurrentTerminal, get_current_terminal
 from app.terminals.schemas import (
     ConfirmIn,
@@ -158,15 +158,32 @@ async def terminal_confirm(
     "/report-error",
     operation_id="terminal_report_error",
     summary="Сообщить, что данные участника неверны",
-    description="`Authorization: Terminal <token>`. Ставит участнику пометку «Ошибка» (ER-01).",
+    description=(
+        "`Authorization: Terminal <token>`. Ставит в карточке пометку «Сообщил об ошибке» "
+        "с временем (ER-01); регистрации нет, наклейка не печатается. После исправления "
+        "данных участник может отсканировать код снова. Если участник уже зарегистрирован, "
+        "ничего не меняется и в `message` текст «Вы уже зарегистрированы…». "
+        "Ошибки: `409 scan_expired`, `404 participant_not_found`."
+    ),
     response_model=ReportErrorOut,
     dependencies=terminal(),
-    responses=err(_INVALID_TOKEN, 422, 404, _DISABLED),
-    tags=_STUB,
+    responses=err(
+        _INVALID_TOKEN,
+        422,
+        (404, "`participant_not_found`: участника нет в активной конференции"),
+        (409, "`scan_expired`: `scan_id` просрочен или чужой, отсканируйте код ещё раз"),
+        _DISABLED,
+    ),
 )
-async def terminal_report_error(body: ReportErrorIn) -> ReportErrorOut:
-    return ReportErrorOut(
-        message="Спасибо, мы передали информацию. Обратитесь к стойке регистрации"
+async def terminal_report_error(
+    body: ReportErrorIn,
+    request: Request,
+    session: Session,
+    current: CurrentTerminal = Depends(get_current_terminal),
+) -> ReportErrorOut:
+    settings: Settings = request.app.state.settings
+    return await report_flow.report_error(
+        session, current, settings, participant_id=body.participant_id, scan_id=body.scan_id
     )
 
 
