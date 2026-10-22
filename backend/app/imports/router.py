@@ -1,16 +1,23 @@
-"""Импорт участников (IM-01..IM-04). ЗАГЛУШКИ (B1-05, B1-08, B1-16)."""
+"""Импорт участников (IM-01..IM-04). Загрузка из файла и шаблон — реальные (B1-05, B1-07, B1-08);
+Битрикс24 — заглушка (B1-16)."""
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import STUB_TAG, err
 from app.api.deps import staff
-from app.api.stubs import T0, XLSX_CONTENT_TYPE
+from app.api.stubs import XLSX_CONTENT_TYPE
+from app.auth.deps import CurrentStaff, get_current_staff
+from app.core.config import Settings
+from app.core.db import get_session
 from app.core.errors import AppError
-from app.imports.schemas import ImportAcceptedOut, ImportReportOut, ImportRowError
+from app.imports import service
+from app.imports.schemas import ImportAcceptedOut, ImportReportOut
+from app.imports.template import build_template
 
-router = APIRouter(prefix="/admin", tags=["admin: imports", STUB_TAG])
+router = APIRouter(prefix="/admin", tags=["admin: imports"])
 
 _UPLOAD_BODY: dict[str, Any] = {
     "requestBody": {
@@ -39,8 +46,13 @@ _UPLOAD_BODY: dict[str, Any] = {
     operation_id="imports_upload",
     summary="Загрузить участников из файла",
     description=(
-        "Разрешение: `imports.run`. multipart/form-data, поле `file` (.xlsx или .csv). "
-        "Обработка идёт в фоне: ответ `202 {batch_id}`, итог — `GET .../imports/{batch_id}`."
+        "Разрешение: `imports.run`. multipart/form-data, поле `file` (.xlsx или .csv, первая "
+        "строка — заголовки; обязательные столбцы: идентификатор, фамилия, имя; остальные "
+        "неизвестные столбцы становятся дополнительными полями). Файл обрабатывается в "
+        "запросе, ответ `202 {batch_id}`, отчёт — `GET .../imports/{batch_id}`. "
+        "Повторная загрузка той же конференции обновляет данные по идентификатору, "
+        "не сбрасывая регистрации; исправленное вручную из файла не перезаписывается "
+        "(расхождения — в отчёте), отсутствующие в файле не удаляются (список — в отчёте)."
     ),
     status_code=202,
     response_model=ImportAcceptedOut,
@@ -49,14 +61,34 @@ _UPLOAD_BODY: dict[str, Any] = {
     responses=err(
         401,
         403,
-        404,
+        (404, "`conference_not_found`: конференции нет"),
         (413, "`file_too_large`: файл больше лимита"),
-        (422, "`validation_error` / `bad_file`: файл не читается или нет нужных столбцов"),
+        (
+            422,
+            "`bad_file`: «Поддерживаются файлы .xlsx и .csv», файл не читается или нет "
+            "обязательных столбцов (ничего не загружено); `validation_error`: нет поля `file`",
+        ),
     ),
 )
-async def imports_upload(conference_id: int, request: Request) -> ImportAcceptedOut:
-    # TODO B1-05: разбор multipart (потребуется python-multipart) и запуск фоновой загрузки
-    return ImportAcceptedOut(batch_id=12)
+async def imports_upload(
+    conference_id: int,
+    request: Request,
+    file: Annotated[UploadFile, File(description="Файл .xlsx или .csv")],
+    session: AsyncSession = Depends(get_session),
+    current: CurrentStaff = Depends(get_current_staff),
+) -> ImportAcceptedOut:
+    settings: Settings = request.app.state.settings
+    limit = settings.import_max_file_mb * 1024 * 1024
+    data = await file.read(limit + 1)  # на байт больше лимита, чтобы заметить превышение
+    batch_id = await service.import_file(
+        session,
+        settings,
+        conference_id=conference_id,
+        user_id=current.user_id,
+        file_name=file.filename or "",
+        data=data,
+    )
+    return ImportAcceptedOut(batch_id=batch_id)
 
 
 @router.get(
@@ -66,34 +98,22 @@ async def imports_upload(conference_id: int, request: Request) -> ImportAccepted
     description="Разрешение: `imports.run`.",
     response_model=ImportReportOut,
     dependencies=staff("imports.run"),
-    responses=err(401, 403, 404),
+    responses=err(401, 403, (404, "`import_not_found`: загрузки нет в этой конференции")),
 )
-async def imports_report(conference_id: int, batch_id: int) -> ImportReportOut:
-    return ImportReportOut(
-        batch_id=batch_id,
-        conference_id=conference_id,
-        source="file",
-        file_name="participants.xlsx",
-        status="done",
-        total_rows=300,
-        created=290,
-        updated=8,
-        unchanged=0,
-        failed=2,
-        errors=[
-            ImportRowError(row=17, field="last_name", message="Не указана фамилия"),
-            ImportRowError(row=42, field="photo", message="Фото не удалось загрузить"),
-        ],
-        started_at=T0,
-        finished_at=T0.replace(second=10),
-    )
+async def imports_report(
+    conference_id: int, batch_id: int, session: AsyncSession = Depends(get_session)
+) -> ImportReportOut:
+    return await service.get_report(session, conference_id, batch_id)
 
 
 @router.get(
     "/import-template.xlsx",
     operation_id="imports_template",
     summary="Шаблон файла для импорта",
-    description="Разрешение: `imports.run`. Заглушка отдаёт пустое тело (TODO B1-08).",
+    description=(
+        "Разрешение: `imports.run`. Пустой .xlsx: заголовки столбцов (обязательные помечены "
+        "«*») и строка-пример; удалите её перед загрузкой."
+    ),
     response_class=Response,
     responses={
         200: {
@@ -105,9 +125,8 @@ async def imports_report(conference_id: int, batch_id: int) -> ImportReportOut:
     dependencies=staff("imports.run"),
 )
 async def imports_template() -> Response:
-    # TODO B1-08: настоящий шаблон с заголовками столбцов
     return Response(
-        content=b"",
+        content=build_template(),
         media_type=XLSX_CONTENT_TYPE,
         headers={"Content-Disposition": 'attachment; filename="import-template.xlsx"'},
     )
@@ -123,6 +142,7 @@ async def imports_template() -> Response:
     ),
     status_code=202,
     response_model=ImportAcceptedOut,
+    tags=[STUB_TAG],
     dependencies=staff("imports.run", write=True),
     responses=err(401, 403, 404, (502, "`bitrix_unavailable`: Битрикс24 недоступен")),
 )
