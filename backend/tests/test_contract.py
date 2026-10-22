@@ -32,7 +32,6 @@ from app.terminals.deps import (
     get_current_terminal,
 )
 from app.terminals.schemas import (
-    ConfirmOut,
     PingOut,
     ReportErrorOut,
     ScanAlreadyRegistered,
@@ -143,6 +142,7 @@ REAL: set[tuple[str, str]] = {
     ("POST", "/api/admin/printers/{}/token"),
     ("GET", "/api/terminal/ping"),
     ("POST", "/api/terminal/scan"),
+    ("POST", "/api/terminal/confirm"),
     ("POST", "/api/agent/heartbeat"),
 }
 
@@ -498,17 +498,6 @@ CASES: list[Case] = [
     ),
     # terminal
     (
-        "t_confirm",
-        "POST",
-        "/api/terminal/confirm",
-        {
-            "headers": {**TERMINAL, "Idempotency-Key": "3f2b8c1e-5a6d-4e7f-9b0a-1c2d3e4f5a6b"},
-            "json": {"participant_id": 17, "scan_id": "scan_1"},
-        },
-        200,
-        ConfirmOut,
-    ),
-    (
         "t_report",
         "POST",
         "/api/terminal/report-error",
@@ -588,27 +577,6 @@ async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
 
 
 # --------------------------------------------------------------------- scan
-
-
-async def test_confirm_requires_idempotency_key(client: httpx.AsyncClient) -> None:
-    r = await client.post(
-        "/api/terminal/confirm",
-        headers=TERMINAL,
-        json={"participant_id": 17, "scan_id": "scan_1"},
-    )
-    assert r.status_code == 422
-    assert r.json()["code"] == "validation_error"
-
-
-async def test_confirm_registered_has_print_job(client: httpx.AsyncClient) -> None:
-    r = await client.post(
-        "/api/terminal/confirm",
-        headers={**TERMINAL, "Idempotency-Key": "k-1"},
-        json={"participant_id": 17, "scan_id": "scan_1"},
-    )
-    body = ConfirmOut.model_validate_json(r.content)
-    assert body.result == "registered"
-    assert body.print_job_id is not None
 
 
 # Отключённый терминал (423) и неверные токены проверяются по-настоящему в test_terminals.py

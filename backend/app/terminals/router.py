@@ -15,7 +15,7 @@ from app.api.deps import staff, terminal
 from app.core.config import Settings
 from app.core.db import get_session
 from app.core.permissions import Permission
-from app.terminals import scan_flow, service
+from app.terminals import confirm_flow, scan_flow, service
 from app.terminals.deps import CurrentTerminal, get_current_terminal
 from app.terminals.schemas import (
     ConfirmIn,
@@ -103,18 +103,34 @@ async def terminal_scan(
     summary="Подтвердить регистрацию",
     description=(
         "`Authorization: Terminal <token>` + обязательный заголовок `Idempotency-Key` (UUID, "
-        "один на экран подтверждения; повторные нажатия отправлять с тем же ключом). "
-        "Результат `registered` (с `print_job_id`) или `already_registered`. После "
-        "`print_job_id` опрашивайте `GET /api/terminal/print-jobs/{id}` раз в 500 мс, не "
-        "дольше 15 с. **Заглушка:** `participant_id=18` даёт `already_registered`."
+        "один на экран подтверждения; повторные нажатия отправлять с тем же ключом, ответ "
+        "будет тот же и наклейка одна). Результат `registered` (с `print_job_id`, если "
+        "наклейка отправлена на печать) или `already_registered` (200, не ошибка: кто-то "
+        "успел раньше). `message` показывать на экране как есть. Если принтер не привязан, "
+        "регистрация всё равно проходит, `print_job_id = null`, в `message` текст TR-08. "
+        "Для конференции «без бейджа» печати нет. После `print_job_id` опрашивайте "
+        "`GET /api/terminal/print-jobs/{id}` раз в 500 мс, не дольше 15 с. "
+        "Ошибки: `409 scan_expired` («Отсканируйте код ещё раз»), "
+        "`404 participant_not_found` (участник не из активной конференции)."
     ),
     response_model=ConfirmOut,
     dependencies=terminal(),
-    responses=err(_INVALID_TOKEN, 422, 404, _DISABLED),
-    tags=_STUB,
+    responses=err(
+        _INVALID_TOKEN,
+        422,
+        (404, "`participant_not_found`: участника нет в активной конференции"),
+        (
+            409,
+            "`scan_expired`: `scan_id` просрочен или чужой, отсканируйте код ещё раз; "
+            "`idempotency_key_reused`: ключ уже использован для другого участника",
+        ),
+        _DISABLED,
+    ),
 )
 async def terminal_confirm(
     body: ConfirmIn,
+    request: Request,
+    session: Session,
     idempotency_key: Annotated[
         str,
         Header(
@@ -125,16 +141,16 @@ async def terminal_confirm(
             examples=["3f2b8c1e-5a6d-4e7f-9b0a-1c2d3e4f5a6b"],
         ),
     ],
+    current: CurrentTerminal = Depends(get_current_terminal),
 ) -> ConfirmOut:
-    if body.participant_id == 18:
-        return ConfirmOut(
-            result="already_registered",
-            message="Вы уже зарегистрированы (20.11, 09:15). Обратитесь к стойке регистрации",
-        )
-    return ConfirmOut(
-        result="registered",
-        print_job_id=501,
-        message="Регистрация выполнена. Печатаем вашу наклейку",
+    settings: Settings = request.app.state.settings
+    return await confirm_flow.confirm(
+        session,
+        current,
+        settings,
+        participant_id=body.participant_id,
+        scan_id=body.scan_id,
+        idempotency_key=idempotency_key,
     )
 
 
