@@ -31,9 +31,7 @@ from app.terminals.deps import (
     get_current_terminal,
 )
 from app.terminals.schemas import (
-    ConfirmOut,
     PingOut,
-    ReportErrorOut,
     ScanAlreadyRegistered,
     ScanFound,
     ScanNotFound,
@@ -141,6 +139,9 @@ REAL: set[tuple[str, str]] = {
     ("PUT", "/api/admin/printers/{}"),
     ("POST", "/api/admin/printers/{}/token"),
     ("GET", "/api/terminal/ping"),
+    ("POST", "/api/terminal/scan"),
+    ("POST", "/api/terminal/confirm"),
+    ("POST", "/api/terminal/report-error"),
     ("POST", "/api/agent/heartbeat"),
     ("GET", "/api/admin/conferences"),
     ("POST", "/api/admin/conferences"),
@@ -477,25 +478,6 @@ CASES: list[Case] = [
     ),
     # terminal
     (
-        "t_confirm",
-        "POST",
-        "/api/terminal/confirm",
-        {
-            "headers": {**TERMINAL, "Idempotency-Key": "3f2b8c1e-5a6d-4e7f-9b0a-1c2d3e4f5a6b"},
-            "json": {"participant_id": 17, "scan_id": "scan_1"},
-        },
-        200,
-        ConfirmOut,
-    ),
-    (
-        "t_report",
-        "POST",
-        "/api/terminal/report-error",
-        {"headers": TERMINAL, "json": {"participant_id": 17, "scan_id": "scan_1"}},
-        200,
-        ReportErrorOut,
-    ),
-    (
         "t_print_job",
         "GET",
         "/api/terminal/print-jobs/501",
@@ -559,49 +541,6 @@ async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
     job = AgentJob.model_validate_json(r.content)
     assert job.copies
     assert base64.b64decode(job.copies[0].png_base64).startswith(PNG_MAGIC)
-
-
-# --------------------------------------------------------------------- scan
-
-
-@pytest.mark.parametrize(
-    ("raw", "result"),
-    [
-        ("https://reg.example.ru/p/Zk3x9QnS7Vb2LmT4", "found"),
-        ("https://reg.example.ru/p/NOTFOUND123", "not_found"),
-        ("https://reg.example.ru/p/AGAIN456", "already_registered"),
-    ],
-)
-async def test_scan_scenarios(client: httpx.AsyncClient, raw: str, result: str) -> None:
-    r = await client.post("/api/terminal/scan", headers=TERMINAL, json={"raw": raw})
-    assert r.status_code == 200
-    body = TypeAdapter(ScanOut).validate_json(r.content)
-    assert body.result == result
-    if isinstance(body, ScanFound):
-        assert body.participant.full_name == "Иванов Пётр Сергеевич"
-        assert body.participant.organization == "ООО Ромашка"
-        assert body.scan_id
-
-
-async def test_confirm_requires_idempotency_key(client: httpx.AsyncClient) -> None:
-    r = await client.post(
-        "/api/terminal/confirm",
-        headers=TERMINAL,
-        json={"participant_id": 17, "scan_id": "scan_1"},
-    )
-    assert r.status_code == 422
-    assert r.json()["code"] == "validation_error"
-
-
-async def test_confirm_registered_has_print_job(client: httpx.AsyncClient) -> None:
-    r = await client.post(
-        "/api/terminal/confirm",
-        headers={**TERMINAL, "Idempotency-Key": "k-1"},
-        json={"participant_id": 17, "scan_id": "scan_1"},
-    )
-    body = ConfirmOut.model_validate_json(r.content)
-    assert body.result == "registered"
-    assert body.print_job_id is not None
 
 
 # Отключённый терминал (423) и неверные токены проверяются по-настоящему в test_terminals.py
