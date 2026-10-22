@@ -17,10 +17,37 @@ class ImportAcceptedOut(BaseModel):
 
 class ImportRowError(BaseModel):
     row: int | None = Field(
-        description="Номер строки файла (с 1); null для общих ошибок", examples=[17]
+        description="Номер строки файла (заголовки — строка 1); null для общих ошибок",
+        examples=[15],
     )
-    field: str | None = Field(description="Столбец или поле с ошибкой", examples=["last_name"])
-    message: str = Field(examples=["Не указана фамилия"])
+    reason: str = Field(description="Причина пропуска", examples=["не указана фамилия"])
+    message: str = Field(
+        description="Готовый текст для показа", examples=["Строка 15: не указана фамилия"]
+    )
+
+
+class ImportConflict(BaseModel):
+    """Расхождение: поле исправлено регистратором, файл содержит другое значение (IM-02)."""
+
+    participant_id: int = Field(examples=[17])
+    external_id: str = Field(examples=["P-1001"])
+    field: str = Field(
+        description="Поле участника; доп. поля — `extra.<key>`", examples=["position"]
+    )
+    system_value: str | None = Field(
+        description="Значение в системе (осталось)", examples=["Инженер"]
+    )
+    file_value: str | None = Field(
+        description="Значение в файле (не применено)", examples=["Ведущий инженер"]
+    )
+
+
+class ImportMissing(BaseModel):
+    """Участник есть в системе, но отсутствует в новом файле (не удаляется)."""
+
+    participant_id: int = Field(examples=[18])
+    external_id: str = Field(examples=["P-1002"])
+    full_name: str = Field(examples=["Петрова Анна Ивановна"])
 
 
 class ImportReportOut(BaseModel):
@@ -31,11 +58,23 @@ class ImportReportOut(BaseModel):
     status: ImportStatus = Field(
         description="Пока `running` — отчёт неполный, опрашивайте повторно"
     )
-    total_rows: int = Field(examples=[300])
-    created: int = Field(description="Добавлено новых участников", examples=[290])
-    updated: int = Field(description="Обновлено существующих", examples=[8])
-    unchanged: int = Field(description="Без изменений", examples=[0])
-    failed: int = Field(description="Строк с ошибками (см. errors)", examples=[2])
-    errors: list[ImportRowError]
+    summary: str = Field(
+        description="Итог одной строкой", examples=["Загружено: 300, пропущено: 0"]
+    )
+    total_rows: int = Field(description="Непустых строк данных в файле", examples=[300])
+    loaded: int = Field(description="Добавлено новых участников", examples=[300])
+    updated: int = Field(
+        description="Существующих участников, у которых что-то изменилось", examples=[0]
+    )
+    unchanged: int = Field(description="Существующих участников без изменений", examples=[0])
+    skipped: int = Field(description="Строк, которые не загружены (см. errors)", examples=[0])
+    errors: list[ImportRowError] = Field(description="Пропущенные строки и причины")
+    conflicts: list[ImportConflict] = Field(
+        description="Расхождения с данными, исправленными вручную: из файла они не применяются"
+    )
+    missing: list[ImportMissing] = Field(
+        description="Участники, которых нет в файле (остаются в системе)"
+    )
+    warnings: list[str] = Field(description="Замечания, не мешающие загрузке")
     started_at: datetime = Field(examples=["2026-11-19T18:00:00+03:00"])
     finished_at: datetime | None = Field(examples=["2026-11-19T18:00:07+03:00"])

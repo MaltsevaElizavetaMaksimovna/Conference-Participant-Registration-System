@@ -11,9 +11,8 @@ from pydantic import TypeAdapter
 from app.api.common import ErrorOut, Page, PrintJobRefOut
 from app.auth.deps import CurrentStaff, get_current_staff
 from app.badges.schemas import ProfileActive, ProfileRevoked
-from app.conferences.schemas import ConferenceOut
 from app.core.permissions import Permission
-from app.imports.schemas import ImportAcceptedOut, ImportReportOut
+from app.imports.schemas import ImportAcceptedOut
 from app.participants.schemas import (
     DuplicatesOut,
     ParticipantCard,
@@ -143,6 +142,13 @@ REAL: set[tuple[str, str]] = {
     ("POST", "/api/admin/printers/{}/token"),
     ("GET", "/api/terminal/ping"),
     ("POST", "/api/agent/heartbeat"),
+    ("GET", "/api/admin/conferences"),
+    ("POST", "/api/admin/conferences"),
+    ("PUT", "/api/admin/conferences/{}"),
+    ("POST", "/api/admin/conferences/{}/activate"),
+    ("POST", "/api/admin/conferences/{}/imports"),
+    ("GET", "/api/admin/conferences/{}/imports/{}"),
+    ("GET", "/api/admin/import-template.xlsx"),
 }
 
 
@@ -374,34 +380,8 @@ Case = tuple[str, str, str, dict[str, Any], int, Any]
 CASES: list[Case] = [
     # auth: реальные эндпоинты (B1-01), см. tests/test_auth.py
     # roles / users: реальные эндпоинты (B1-02, B1-03), см. test_roles.py и test_users.py
-    # conferences / imports
-    ("conf_list", "GET", "/api/admin/conferences", {}, 200, Page[ConferenceOut]),
-    (
-        "conf_create",
-        "POST",
-        "/api/admin/conferences",
-        {"json": {"title": "Новая", "date_from": "2026-12-01", "date_to": "2026-12-02"}},
-        201,
-        ConferenceOut,
-    ),
-    (
-        "conf_update",
-        "PUT",
-        "/api/admin/conferences/1",
-        {"json": {"title": "Демо", "date_from": "2026-12-01", "date_to": "2026-12-02"}},
-        200,
-        ConferenceOut,
-    ),
-    ("conf_activate", "POST", "/api/admin/conferences/2/activate", {}, 200, ConferenceOut),
-    (
-        "import_upload",
-        "POST",
-        "/api/admin/conferences/1/imports",
-        {"files": {"file": ("p.xlsx", b"PK", "application/octet-stream")}},
-        202,
-        ImportAcceptedOut,
-    ),
-    ("import_report", "GET", "/api/admin/conferences/1/imports/12", {}, 200, ImportReportOut),
+    # conferences / imports: реальные эндпоинты (B1-04, B1-05, B1-08), см. test_conferences.py
+    # и test_import*.py; заглушка осталась только у загрузки из Битрикс24
     (
         "import_bitrix",
         "POST",
@@ -570,11 +550,6 @@ async def test_binary_endpoints(client: httpx.AsyncClient) -> None:
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
     assert r.content.startswith(PNG_MAGIC)
-
-    r = await client.get("/api/admin/import-template.xlsx")
-    assert r.status_code == 200
-    assert "spreadsheetml" in r.headers["content-type"]
-    assert "attachment" in r.headers["content-disposition"]
 
 
 async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:

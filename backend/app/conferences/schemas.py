@@ -1,5 +1,6 @@
 """Схемы конференций (AD-01)."""
 
+import re
 from datetime import date, datetime
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
@@ -35,6 +36,21 @@ class ConferenceIn(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("Укажите название конференции")
+        return v
+
+    @field_validator("invite_id_regex")
+    @classmethod
+    def _regex_valid(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        if len(v) > 500:
+            raise ValueError("Регулярка длиннее 500 символов")
+        try:
+            groups = re.compile(v).groups
+        except re.error as e:
+            raise ValueError(f"Некорректная регулярка: {e}") from e
+        if groups < 1:
+            raise ValueError("В регулярке нужна группа (...), которая выделяет ID")
         return v
 
     @field_validator("date_to")
