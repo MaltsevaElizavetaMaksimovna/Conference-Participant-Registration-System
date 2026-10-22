@@ -203,3 +203,58 @@ async def test_permissions(login_as: LoginAs, anon: httpx.AsyncClient) -> None:
     r = await c.post(URL, json=BODY)
     assert r.status_code == 403
     assert r.json()["code"] == "csrf_required"
+
+
+async def test_get_one(login_as: LoginAs, db: AsyncSession, anon: httpx.AsyncClient) -> None:
+    c = await manager(login_as)
+    conf = await create(c, invite_id_regex=r"id=(\d+)")
+    db.add(
+        Participant(
+            conference_id=conf["id"],
+            external_id="A1",
+            last_name="Иванов",
+            first_name="Пётр",
+            search_norm="иванов петр",
+        )
+    )
+    await db.commit()
+
+    r = await c.get(f"{URL}/{conf['id']}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["id"] == conf["id"]
+    assert body["title"] == BODY["title"]
+    assert body["badge_type"] == "double"
+    assert body["invite_id_regex"] == r"id=(\d+)"
+    assert body["participants_total"] == 1
+    assert body["is_active"] is False
+
+    r = await c.get(f"{URL}/999999")
+    assert r.status_code == 404
+    assert r.json()["code"] == "conference_not_found"
+
+    other = await login_as("imports.run")
+    assert (await other.get(f"{URL}/{conf['id']}")).status_code == 403
+    assert (await anon.get(f"{URL}/{conf['id']}")).status_code == 401
+
+
+async def test_active_conference(login_as: LoginAs, anon: httpx.AsyncClient) -> None:
+    # любой сотрудник, даже без разрешений
+    nobody = await login_as()
+    assert (await anon.get("/api/conferences/active")).status_code == 401
+    assert (await nobody.get("/api/conferences/active")).json() is None
+
+    c = await manager(login_as)
+    conf = await create(c, title="Активная", front_template_id=None)
+    assert (await nobody.get("/api/conferences/active")).json() is None
+    await c.post(f"{URL}/{conf['id']}/activate")
+
+    r = await nobody.get("/api/conferences/active")
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "id": conf["id"],
+        "title": "Активная",
+        "date_from": "2026-11-20",
+        "date_to": "2026-11-21",
+        "badge_type": "double",
+    }

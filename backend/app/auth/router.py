@@ -8,7 +8,7 @@ from app.api.deps import staff
 from app.auth import service
 from app.auth.deps import SESSION_COOKIE, CurrentStaff, get_current_staff
 from app.auth.ratelimit import get_login_limiter
-from app.auth.schemas import LoginIn, MeOut, PanelPrinterIn
+from app.auth.schemas import LoginIn, MeOut, PanelPrinterIn, PasswordChangeIn
 from app.core.config import Settings
 from app.core.db import get_session
 from app.roles.service import sort_permissions
@@ -137,3 +137,42 @@ async def set_panel_printer(
     return await service.current_profile(
         session, current.user_id, sort_permissions({str(p) for p in current.permissions})
     )
+
+
+@router.put(
+    "/me/password",
+    operation_id="auth_change_password",
+    summary="Сменить свой пароль",
+    description=(
+        "Любой вошедший сотрудник. Нужен текущий пароль; новый — не короче 8 символов. "
+        "Остальные сессии пользователя (другие браузеры) завершаются, текущая остаётся. "
+        "Неверный текущий пароль — `401 invalid_credentials` (это не потеря сессии: "
+        "отличайте от `unauthenticated`); такие попытки учитываются в лимите входа "
+        "(`429 too_many_requests`)."
+    ),
+    status_code=204,
+    response_class=Response,
+    dependencies=staff(write=True),
+    responses=err(
+        (401, "`unauthenticated`: нет сессии; `invalid_credentials`: неверный текущий пароль"),
+        403,
+        422,
+        429,
+    ),
+)
+async def change_password(
+    body: PasswordChangeIn,
+    request: Request,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    await service.change_password(
+        session,
+        get_login_limiter(request.app),
+        user_id=current.user_id,
+        session_id=current.session_id,
+        ip=request.client.host if request.client else None,
+        current_password=body.current_password,
+        new_password=body.new_password,
+    )
+    return Response(status_code=204)

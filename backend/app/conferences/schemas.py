@@ -67,3 +67,15 @@ class ConferenceOut(ConferenceIn):
     is_active: bool = Field(description="Активна ровно одна конференция", examples=[True])
     participants_total: int = Field(examples=[300])
     created_at: datetime = Field(examples=["2026-10-01T12:00:00+03:00"])
+
+
+class ActiveConferenceOut(BaseModel):
+    """Краткие данные активной конференции для шапки панели (доступны любому сотруднику)."""
+
+    id: int = Field(examples=[3])
+    title: str = Field(examples=["Конференция «Инновации-2026»"])
+    date_from: date = Field(examples=["2026-11-20"])
+    date_to: date = Field(examples=["2026-11-21"])
+    badge_type: BadgeType = Field(
+        description="`single` — односторонний бейдж, `double` — двусторонний, `none` — без бейджа"
+    )

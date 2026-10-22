@@ -21,6 +21,7 @@ from app.participants.schemas import (
     ParticipantCreateIn,
     ParticipantFilter,
     ParticipantShort,
+    ParticipantSort,
     ParticipantStats,
     ParticipantUpdateIn,
     RegistrationInfo,
@@ -56,6 +57,9 @@ _SHORT = [
 ]
 
 REGISTERED_AT_TEXT = "20.11 09:15, Терминал 2"
+
+# Время регистрации в заглушке для `sort=registered_at`: 17 раньше 19, 18 не регистрировался
+_REGISTERED_AT = {17: T0, 19: T0.replace(minute=40)}
 
 
 def sample_short(participant_id: int) -> ParticipantShort:
@@ -138,7 +142,9 @@ def sample_card(participant_id: int) -> ParticipantCard:
     description=(
         "Разрешение: `participants.view`. Участники активной конференции. Поиск `q` — по ФИО, "
         "начиная с 2 символов (RG-02). `filter=flagged` — участники с пометками. "
-        "Заглушка отдаёт трёх фиксированных участников (id 17, 18, 19)."
+        "Сортировка `sort`: `name` (по умолчанию, по ФИО), `registered_at` (раньше "
+        "зарегистрированные выше), `-registered_at` (позже выше); незарегистрированные "
+        "всегда в конце. Заглушка отдаёт трёх фиксированных участников (id 17, 18, 19)."
     ),
     response_model=Page[ParticipantShort],
     dependencies=staff("participants.view"),
@@ -147,6 +153,7 @@ def sample_card(participant_id: int) -> ParticipantCard:
 async def participants_list(
     q: Annotated[str | None, Query(description="Поиск по ФИО", examples=["иван"])] = None,
     filter: Annotated[ParticipantFilter, Query(description="Фильтр списка")] = "all",
+    sort: Annotated[ParticipantSort, Query(description="Порядок списка")] = "name",
     limit: Limit = 50,
     offset: Offset = 0,
 ) -> Page[ParticipantShort]:
@@ -160,6 +167,15 @@ async def participants_list(
         items = [p for p in items if p.status == "not_registered"]
     elif filter == "flagged":
         items = [p for p in items if p.flags]
+    if sort == "name":
+        items.sort(key=lambda p: p.full_name)
+    else:
+        done = sorted(
+            (p for p in items if p.id in _REGISTERED_AT),
+            key=lambda p: (_REGISTERED_AT[p.id], p.id),
+            reverse=sort == "-registered_at",
+        )
+        items = [*done, *(p for p in items if p.id not in _REGISTERED_AT)]
     return Page[ParticipantShort](items=items[offset : offset + limit], total=len(items))
 
 

@@ -22,7 +22,7 @@ from app.models.base import utcnow
 from app.models.device import Printer
 from app.models.staff import Role, StaffSession, StaffUser
 from app.roles.schemas import RoleRef
-from app.roles.service import as_codes, role_permissions
+from app.roles.service import as_codes, revoke_user_sessions, role_permissions
 
 # Просроченные и отозванные сессии пользователя удаляются при его следующем входе
 _STALE_SESSION_AGE = timedelta(days=1)
@@ -128,4 +128,42 @@ async def set_panel_printer(session: AsyncSession, user_id: int, printer_id: int
     await session.execute(
         update(StaffUser).where(StaffUser.id == user_id).values(panel_printer_id=printer_id)
     )
+    await session.commit()
+
+
+async def change_password(
+    session: AsyncSession,
+    limiter: LoginRateLimiter,
+    *,
+    user_id: int,
+    session_id: str,
+    ip: str | None,
+    current_password: str,
+    new_password: str,
+) -> None:
+    """Смена собственного пароля: проверяет текущий, завершает остальные сессии, эту оставляет.
+
+    Неверный текущий пароль считается неудачной попыткой входа (общий лимит с `/auth/login`),
+    чтобы по украденной сессии нельзя было подбирать пароль.
+    """
+    user = await session.get(StaffUser, user_id)
+    if user is None:  # сессия есть, а пользователя нет — быть не должно (FK)
+        raise AppError("unauthenticated", "Требуется вход в систему", 401)
+    key = (ip or "-", user.login.casefold())
+
+    retry_after = limiter.retry_after(key)
+    if retry_after is not None:
+        raise AppError(
+            "too_many_requests",
+            "Слишком много неудачных попыток. Повторите позже",
+            429,
+            {"retry_after_s": retry_after},
+        )
+    if not await asyncio.to_thread(verify_password, user.password_hash, current_password):
+        limiter.fail(key)
+        raise AppError("invalid_credentials", "Неверный текущий пароль", 401)
+    limiter.reset(key)
+
+    user.password_hash = await asyncio.to_thread(hash_password, new_password)
+    await revoke_user_sessions(session, user_id, keep_session_id=session_id)
     await session.commit()

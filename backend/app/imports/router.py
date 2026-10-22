@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.common import STUB_TAG, err
+from app.api.common import STUB_TAG, Limit, Offset, Page, err
 from app.api.deps import staff
 from app.api.stubs import XLSX_CONTENT_TYPE
 from app.auth.deps import CurrentStaff, get_current_staff
@@ -14,7 +14,13 @@ from app.core.config import Settings
 from app.core.db import get_session
 from app.core.errors import AppError
 from app.imports import service
-from app.imports.schemas import ImportAcceptedOut, ImportReportOut
+from app.imports.schemas import (
+    BitrixSettingsIn,
+    BitrixSettingsOut,
+    ImportAcceptedOut,
+    ImportBatchShort,
+    ImportReportOut,
+)
 from app.imports.template import build_template
 
 router = APIRouter(prefix="/admin", tags=["admin: imports"])
@@ -92,6 +98,28 @@ async def imports_upload(
 
 
 @router.get(
+    "/conferences/{conference_id}/imports",
+    operation_id="imports_list",
+    summary="История загрузок конференции",
+    description=(
+        "Разрешение: `imports.run`. Загрузки из файла и из Битрикс24, новые сверху. "
+        "`loaded`, `updated`, `skipped` — итоги; подробности — `GET .../imports/{id}`."
+    ),
+    response_model=Page[ImportBatchShort],
+    dependencies=staff("imports.run"),
+    responses=err(401, 403, (404, "`conference_not_found`: конференции нет")),
+)
+async def imports_list(
+    conference_id: int,
+    limit: Limit = 50,
+    offset: Offset = 0,
+    session: AsyncSession = Depends(get_session),
+) -> Page[ImportBatchShort]:
+    items, total = await service.list_batches(session, conference_id, limit, offset)
+    return Page[ImportBatchShort](items=items, total=total)
+
+
+@router.get(
     "/conferences/{conference_id}/imports/{batch_id}",
     operation_id="imports_report",
     summary="Отчёт об импорте",
@@ -152,3 +180,67 @@ async def imports_bitrix(conference_id: int) -> ImportAcceptedOut:
             "bitrix_unavailable", "Битрикс24 недоступен. Попробуйте позже или загрузите файл", 502
         )
     return ImportAcceptedOut(batch_id=13)
+
+
+_BITRIX_NOTE = (
+    "URL вебхука (секрет) через API не передаётся: он задаётся на сервере в "
+    "`RS_BITRIX_WEBHOOK_URL`, а `webhook_configured` показывает, задан ли он."
+)
+
+_STUB_BITRIX = BitrixSettingsIn(
+    entity="contact",
+    filter={"=SOURCE_ID": "WEB"},
+    field_map={
+        "external_id": "ID",
+        "last_name": "LAST_NAME",
+        "first_name": "NAME",
+        "middle_name": "SECOND_NAME",
+        "organization": "COMPANY_TITLE",
+        "position": "POST",
+    },
+)
+
+
+def _webhook_configured(request: Request) -> bool:
+    settings: Settings = request.app.state.settings
+    return settings.bitrix_webhook_url is not None
+
+
+@router.get(
+    "/conferences/{conference_id}/bitrix-settings",
+    operation_id="bitrix_settings_get",
+    summary="Настройки загрузки из Битрикс24",
+    description=(
+        f"Разрешение: `imports.run`. Откуда брать участников, фильтр и соответствие полей. "
+        f"{_BITRIX_NOTE} Заглушка: настройки фиксированные, `webhook_configured` берётся "
+        "из окружения."
+    ),
+    response_model=BitrixSettingsOut,
+    tags=[STUB_TAG],
+    dependencies=staff("imports.run"),
+    responses=err(401, 403, 404),
+)
+async def bitrix_settings_get(conference_id: int, request: Request) -> BitrixSettingsOut:
+    return BitrixSettingsOut(
+        **_STUB_BITRIX.model_dump(), webhook_configured=_webhook_configured(request)
+    )
+
+
+@router.put(
+    "/conferences/{conference_id}/bitrix-settings",
+    operation_id="bitrix_settings_put",
+    summary="Сохранить настройки загрузки из Битрикс24",
+    description=(
+        f"Разрешение: `imports.run`. Полная замена настроек. {_BITRIX_NOTE} "
+        "Для `entity=smart_process` обязателен `entity_type_id`. Заглушка ничего не "
+        "сохраняет и возвращает присланное."
+    ),
+    response_model=BitrixSettingsOut,
+    tags=[STUB_TAG],
+    dependencies=staff("imports.run", write=True),
+    responses=err(401, 403, 404, 422),
+)
+async def bitrix_settings_put(
+    conference_id: int, body: BitrixSettingsIn, request: Request
+) -> BitrixSettingsOut:
+    return BitrixSettingsOut(**body.model_dump(), webhook_configured=_webhook_configured(request))

@@ -2,21 +2,30 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import STUB_TAG, Limit, Offset, Page, PrintJobRefOut, err
 from app.api.deps import staff
 from app.api.stubs import PNG_1X1, T0
+from app.core.db import get_session
+from app.core.errors import AppError
+from app.templates import fields
 from app.templates.schemas import (
     OverflowItem,
+    OverflowOut,
     ResizeIn,
     TemplateElement,
+    TemplateFieldOut,
     TemplateIn,
     TemplateOut,
+    TemplateSaveOut,
     TemplateTestPrintIn,
 )
 
 router = APIRouter(prefix="/admin/conferences", tags=["admin: templates", STUB_TAG])
+# Реальные эндпоинты модуля (без тега `stub`)
+fields_router = APIRouter(prefix="/admin/conferences", tags=["admin: templates"])
 
 _PERM = "conferences.manage"
 _BASE = "/{conference_id}/templates"
@@ -49,6 +58,17 @@ def _elements() -> list[TemplateElement]:
             max_lines=2,
         ),
         TemplateElement(type="qr", x_mm=40, y_mm=24, w_mm=15, h_mm=15),
+    ]
+
+
+def _overflow() -> list[OverflowItem]:
+    return [
+        OverflowItem(
+            participant_id=17,
+            full_name="Иванов Пётр Сергеевич",
+            field="organization",
+            value="Общество с ограниченной ответственностью «Ромашка»",
+        )
     ]
 
 
@@ -117,21 +137,56 @@ async def templates_get(conference_id: int, template_id: int) -> TemplateOut:
     operation_id="templates_update",
     summary="Сохранить шаблон",
     description=(
-        "Разрешение: `conferences.manage`. Полная замена; `version` растёт. Какие участники "
-        "не помещаются в новый шаблон, показывает `GET .../overflow` (PR-03)."
+        "Разрешение: `conferences.manage`. Полная замена; `version` растёт. В ответе поля "
+        "шаблона и `overflow` — участники, которые не помещаются даже минимальным кеглем "
+        "(PR-03); тот же список отдаёт `GET .../overflow`. Заглушка всегда возвращает "
+        "один пример."
     ),
-    response_model=TemplateOut,
+    response_model=TemplateSaveOut,
     dependencies=staff(_PERM, write=True),
     responses=err(401, 403, 404, 422),
 )
-async def templates_update(conference_id: int, template_id: int, body: TemplateIn) -> TemplateOut:
-    return TemplateOut(
+async def templates_update(
+    conference_id: int, template_id: int, body: TemplateIn
+) -> TemplateSaveOut:
+    return TemplateSaveOut(
         **body.model_dump(),
         id=template_id,
         conference_id=conference_id,
         version=4,
         updated_at=T0,
+        overflow=_overflow(),
     )
+
+
+@router.delete(
+    _BASE + "/{template_id}",
+    operation_id="templates_delete",
+    summary="Удалить шаблон",
+    description=(
+        "Разрешение: `conferences.manage`. Шаблон, привязанный к конференции (`front_template_id` "
+        "и др.), удалить нельзя: `409 template_in_use`, сначала отвяжите его. "
+        "Заглушка: шаблон 1 «привязан» (409), остальные удаляются (204)."
+    ),
+    status_code=204,
+    response_class=Response,
+    dependencies=staff(_PERM, write=True),
+    responses=err(
+        401,
+        403,
+        404,
+        (409, "`template_in_use`: шаблон привязан к конференции, сначала отвяжите его"),
+    ),
+)
+async def templates_delete(conference_id: int, template_id: int) -> Response:
+    if template_id == 1:
+        raise AppError(
+            "template_in_use",
+            "Шаблон используется в конференции. Сначала отвяжите его",
+            409,
+            {"conference_id": conference_id},
+        )
+    return Response(status_code=204)
 
 
 @router.post(
@@ -205,22 +260,12 @@ async def templates_preview(
     description=(
         "Разрешение: `conferences.manage`. Данные не помещаются даже минимальным кеглем (PR-03)."
     ),
-    response_model=Page[OverflowItem],
+    response_model=OverflowOut,
     dependencies=staff(_PERM),
     responses=err(401, 403, 404),
 )
-async def templates_overflow(
-    conference_id: int, template_id: int, limit: Limit = 50, offset: Offset = 0
-) -> Page[OverflowItem]:
-    items = [
-        OverflowItem(
-            participant_id=17,
-            full_name="Иванов Пётр Сергеевич",
-            field="organization",
-            text="Общество с ограниченной ответственностью «Ромашка»",
-        )
-    ]
-    return Page[OverflowItem](items=items[offset : offset + limit], total=len(items))
+async def templates_overflow(conference_id: int, template_id: int) -> OverflowOut:
+    return OverflowOut(items=_overflow())
 
 
 @router.post(
@@ -239,3 +284,24 @@ async def templates_test_print(
     conference_id: int, template_id: int, body: TemplateTestPrintIn
 ) -> PrintJobRefOut:
     return PrintJobRefOut(print_job_id=504)
+
+
+@fields_router.get(
+    "/{conference_id}/template-fields",
+    operation_id="templates_fields",
+    summary="Поля, доступные в шаблоне",
+    description=(
+        "Разрешение: `conferences.manage`. Что можно поставить в `elements[].field`: "
+        "стандартные поля участника (`standard`), их английские версии (`english`), "
+        "дополнительные поля конференции из загруженного файла (`extra`, ключ "
+        "`extra.<ключ>`) и особые значения (`special`: `full_name`, `qr`, `text`). "
+        "Порядок: standard, english, extra, special."
+    ),
+    response_model=list[TemplateFieldOut],
+    dependencies=staff(_PERM),
+    responses=err(401, 403, (404, "`conference_not_found`: конференции нет")),
+)
+async def templates_fields(
+    conference_id: int, session: AsyncSession = Depends(get_session)
+) -> list[TemplateFieldOut]:
+    return await fields.list_template_fields(session, conference_id)

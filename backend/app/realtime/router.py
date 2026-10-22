@@ -7,21 +7,28 @@ from fastapi.responses import StreamingResponse
 
 from app.api.common import STUB_TAG, err
 from app.api.deps import staff
-from app.realtime.schemas import StatsEvent
+from app.realtime.schemas import (
+    PARTICIPANT_UPDATED_EVENT,
+    STATS_EVENT,
+    ParticipantUpdatedEvent,
+    StatsEvent,
+)
 
 router = APIRouter(prefix="/events", tags=["realtime", STUB_TAG])
 
 SSE_EXAMPLE = (
     'event: stats\ndata: {"registered": 120, "total": 300}\n\n'
     ": keep-alive\n\n"
-    'event: participant_updated\ndata: {"participant": {"id": 17, ...}}\n\n'
+    'event: participant_updated\ndata: {"id": 17, "status": "registered", "flags": []}\n\n'
 )
 
 
 async def _stub_stream() -> AsyncIterator[str]:
     # TODO B1-11: настоящий поток с подпиской на изменения и keep-alive раз в 15 с
-    event = StatsEvent(registered=120, total=300)
-    yield f"event: stats\ndata: {event.model_dump_json()}\n\n"
+    stats = StatsEvent(registered=120, total=300)
+    yield f"event: {STATS_EVENT}\ndata: {stats.model_dump_json()}\n\n"
+    updated = ParticipantUpdatedEvent(id=17, status="registered", flags=["data_changed"])
+    yield f"event: {PARTICIPANT_UPDATED_EVENT}\ndata: {updated.model_dump_json()}\n\n"
     yield ": keep-alive\n\n"
 
 
@@ -32,9 +39,11 @@ async def _stub_stream() -> AsyncIterator[str]:
     description=(
         "Разрешение: `participants.view`. `Content-Type: text/event-stream`. События: "
         "`stats` (`{registered, total}`) — сразу при подключении и после каждой регистрации; "
-        "`participant_updated` (`{participant: ParticipantShort}`); строки `: keep-alive` "
-        "раз в 15 с. Подключайтесь через `EventSource` с `withCredentials`. "
-        "**Заглушка:** отдаёт одно событие `stats` и keep-alive, затем закрывает поток."
+        "`participant_updated` (`{id, status, flags}`: статус и полный список пометок "
+        "участника, по ним обновляйте строку списка); строки `: keep-alive` раз в 15 с. "
+        "Неизвестные имена событий игнорируйте. Подключайтесь через `EventSource` с "
+        "`withCredentials`. **Заглушка:** отдаёт по одному событию `stats` и "
+        "`participant_updated` и keep-alive, затем закрывает поток."
     ),
     response_class=StreamingResponse,
     responses={

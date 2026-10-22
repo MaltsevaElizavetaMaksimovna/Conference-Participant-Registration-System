@@ -27,6 +27,7 @@ from app.core.text import full_name
 from app.imports.columns import FIELD_BY_KEY, FIELDS, REQUIRED_KEYS, unique_slug
 from app.imports.readers import ImportFileError, file_too_large, read_table
 from app.imports.schemas import (
+    ImportBatchShort,
     ImportConflict,
     ImportMissing,
     ImportReportOut,
@@ -37,6 +38,7 @@ from app.models.base import utcnow
 from app.models.conference import Conference, ExtraFieldDef
 from app.models.imports import ImportBatch
 from app.models.participant import ChangeLog, Participant
+from app.models.staff import StaffUser
 from app.participants.service import NAME_FIELDS, compute_search_norm
 
 log = logging.getLogger("app.imports")
@@ -481,4 +483,46 @@ async def get_report(session: AsyncSession, conference_id: int, batch_id: int) -
     )
 
 
-__all__ = ["ImportFileError", "get_report", "import_file"]
+async def list_batches(
+    session: AsyncSession, conference_id: int, limit: int, offset: int
+) -> tuple[list[ImportBatchShort], int]:
+    """Загрузки конференции, новые сверху."""
+    if await session.get(Conference, conference_id) is None:
+        raise AppError("conference_not_found", "Конференция не найдена", 404)
+    total = (
+        await session.scalar(
+            select(func.count())
+            .select_from(ImportBatch)
+            .where(ImportBatch.conference_id == conference_id)
+        )
+        or 0
+    )
+    rows = await session.execute(
+        select(ImportBatch, StaffUser.login)
+        .outerjoin(StaffUser, StaffUser.id == ImportBatch.user_id)
+        .where(ImportBatch.conference_id == conference_id)
+        .order_by(ImportBatch.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    items = []
+    for batch, login in rows:
+        r = batch.report or {}
+        items.append(
+            ImportBatchShort(
+                id=batch.id,
+                source=batch.source,  # type: ignore[arg-type]
+                file_name=batch.file_name,
+                status=batch.status,  # type: ignore[arg-type]
+                created_at=batch.created_at,
+                finished_at=batch.finished_at,
+                user_login=login,
+                loaded=r.get("loaded", 0),
+                updated=r.get("updated", 0),
+                skipped=r.get("skipped", 0),
+            )
+        )
+    return items, total
+
+
+__all__ = ["ImportFileError", "get_report", "import_file", "list_batches"]

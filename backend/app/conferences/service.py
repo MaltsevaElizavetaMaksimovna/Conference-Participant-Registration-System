@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.conferences.schemas import ConferenceIn, ConferenceOut
+from app.conferences.schemas import ActiveConferenceOut, ConferenceIn, ConferenceOut
 from app.core.enums import TemplateKind
 from app.core.errors import AppError
 from app.models.base import utcnow
@@ -134,6 +134,27 @@ async def _get(session: AsyncSession, conference_id: int) -> Conference:
         await session.rollback()
         raise conference_not_found()
     return conf
+
+
+async def get_conference(session: AsyncSession, conference_id: int) -> ConferenceOut:
+    conf = await session.get(Conference, conference_id, populate_existing=True)
+    if conf is None:
+        raise conference_not_found()
+    return _out(conf, await _participants_total(session, conference_id))
+
+
+async def get_active(session: AsyncSession) -> ActiveConferenceOut | None:
+    """Активная конференция или None, если ни одна не активирована."""
+    conf = await session.scalar(select(Conference).where(Conference.is_active.is_(True)))
+    if conf is None:
+        return None
+    return ActiveConferenceOut(
+        id=conf.id,
+        title=conf.title,
+        date_from=conf.date_from,
+        date_to=conf.date_to,
+        badge_type=conf.badge_type,  # type: ignore[arg-type]
+    )
 
 
 async def update_conference(
