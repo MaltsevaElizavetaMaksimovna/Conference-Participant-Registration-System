@@ -16,6 +16,7 @@ dependencies = [
     "pydantic-settings>=2.7",
     "alembic>=1.13",
     "argon2-cffi>=23.1",
+    "tzdata>=2024.1",  # часовые пояса (RS_TIMEZONE) на Windows
 ]
 
 [project.optional-dependencies]

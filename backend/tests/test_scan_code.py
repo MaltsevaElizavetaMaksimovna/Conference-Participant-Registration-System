@@ -3,6 +3,7 @@
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.terminals.scan_code import (
     RU_TO_US,
@@ -11,6 +12,7 @@ from app.terminals.scan_code import (
     normalize_scan,
 )
 from tests.conftest import Devices
+from tests.registration_helpers import make_conference, make_participant
 
 # Эталоны получены из tools/scanner-spike/test.js (restoreFromKeys при раскладке RU):
 # что «увидел» браузер, если сканер печатал в русской раскладке.
@@ -294,7 +296,7 @@ def test_full_chain_from_russian_layout() -> None:
     assert extract_invite_id(normalize_scan("И24-1001\r\n"), None) == "B24-1001"
 
 
-# ------------------------------------------------------- POST /api/terminal/scan (заглушка)
+# ------------------------------------------------------- POST /api/terminal/scan (разбор кода)
 
 
 async def _scan(client: httpx.AsyncClient, token: str, raw: str) -> httpx.Response:
@@ -304,8 +306,9 @@ async def _scan(client: httpx.AsyncClient, token: str, raw: str) -> httpx.Respon
 
 
 async def test_scan_endpoint_understands_russian_layout(
-    db_client: httpx.AsyncClient, devices: Devices
+    db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
+    await make_participant(db, await make_conference(db), "A1b2")
     _, token = await devices.terminal()
     r = await _scan(db_client, token, RU_URL + "\r\n")
     assert r.status_code == 200
@@ -324,11 +327,14 @@ async def test_scan_endpoint_unparsable_code_is_not_found(
 
 
 async def test_scan_endpoint_badge_link_is_not_found(
-    app: FastAPI, db_client: httpx.AsyncClient, devices: Devices
+    app: FastAPI, db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
+    conference = await make_conference(db)
+    await make_participant(db, conference, "Zk3x9QnS7Vb2LmT4")
+    await make_participant(db, conference, "777", last_name="Петров")
     _, token = await devices.terminal()
     link = "https://reg.example.ru/p/Zk3x9QnS7Vb2LmT4"
-    # адрес системы не задан: ссылку не узнать, дальше работает заглушка
+    # адрес системы не задан: ссылку не узнать, последний сегмент пути считается ID
     assert (await _scan(db_client, token, link)).json()["result"] == "found"
 
     app.state.settings = app.state.settings.model_copy(
@@ -344,8 +350,10 @@ async def test_scan_endpoint_badge_link_is_not_found(
 
 
 async def test_scan_endpoint_uses_configured_regex(
-    app: FastAPI, db_client: httpx.AsyncClient, devices: Devices
+    app: FastAPI, db_client: httpx.AsyncClient, db: AsyncSession, devices: Devices
 ) -> None:
+    conference = await make_conference(db)
+    await make_participant(db, conference, "777")
     _, token = await devices.terminal()
     app.state.settings = app.state.settings.model_copy(update={"invite_id_regex": r"/invite/(\d+)"})
     assert (await _scan(db_client, token, "https://b24.example/invite/777")).json()[

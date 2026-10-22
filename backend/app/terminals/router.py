@@ -1,7 +1,7 @@
 """Эндпоинты терминала самообслуживания и админка терминалов.
 
-Реальные: `ping` и админка (B2-01, B2-06). Остальное — заглушки (B2-03, B2-04, B2-05),
-но уже под настоящей авторизацией терминала.
+Реальные: `ping`, `scan`, `confirm`, `report-error` и админка (B2-01, B2-03..06).
+Заглушка осталась только у `print-jobs/{id}` (B2-11), но уже под настоящей авторизацией.
 """
 
 from enum import Enum
@@ -15,9 +15,8 @@ from app.api.deps import staff, terminal
 from app.core.config import Settings
 from app.core.db import get_session
 from app.core.permissions import Permission
-from app.terminals import service
+from app.terminals import scan_flow, service
 from app.terminals.deps import CurrentTerminal, get_current_terminal
-from app.terminals.scan_code import extract_invite_id, is_badge_link, normalize_scan
 from app.terminals.schemas import (
     ConfirmIn,
     ConfirmOut,
@@ -29,7 +28,6 @@ from app.terminals.schemas import (
     ScanIn,
     ScanNotFound,
     ScanOut,
-    ScanParticipant,
     TerminalIn,
     TerminalOut,
     TerminalPrintJobOut,
@@ -44,7 +42,6 @@ _STUB: list[str | Enum] = [STUB_TAG]
 
 _DISABLED = (423, "`terminal_disabled`: «Терминал не работает, воспользуйтесь соседним»")
 _INVALID_TOKEN = (401, "`invalid_device_token`: токен терминала отсутствует или неверный")
-_NOT_FOUND_TEXT = "Участник не найден. Обратитесь к стойке регистрации"
 
 
 @terminal_router.get(
@@ -76,52 +73,28 @@ async def terminal_ping(
     summary="Отправить отсканированный код",
     description=(
         "`Authorization: Terminal <token>`. Результат в поле `result`: `found` (показать "
-        "данные и кнопку подтверждения), `not_found`, `already_registered`. Если нет активной "
-        "конференции, всегда `not_found`. Строка нормализуется (раскладка, пробелы), из "
-        "ссылки берётся ID участника; ссылка, из которой ID не достать, и QR с наклейки дают "
-        "`not_found`. **Заглушка:** поиска участника ещё нет; `raw` с подстрокой `notfound` "
-        "даёт `not_found`, с подстрокой `again` — `already_registered`, иначе `found`."
+        "данные и кнопки «Да, всё верно» / «Есть ошибка»; `scan_id` передать в confirm и "
+        "report-error), `not_found`, `already_registered`. Поиск идёт только среди участников "
+        "активной конференции; если её нет, всегда `not_found`. Строка нормализуется "
+        "(раскладка, пробелы), из ссылки берётся ID приглашения (регулярка конференции "
+        "`invite_id_regex`, иначе `RS_INVITE_ID_REGEX`); ссылка, из которой ID не достать, "
+        "и QR с наклейки дают `not_found`. Пустые должность и организация приходят как "
+        "«не указано». Не найденный код пишется в журнал, повторный скан зарегистрированного "
+        "увеличивает счётчик в карточке. Время в сообщении — в часовом поясе `RS_TIMEZONE`. "
+        "`scan_id` подписан, привязан к терминалу и участнику и живёт `idle_timeout_s + 30` с."
     ),
     response_model=ScanOut,
     dependencies=terminal(),
     responses=err(_INVALID_TOKEN, 422, _DISABLED),
-    tags=_STUB,
 )
 async def terminal_scan(
-    body: ScanIn, request: Request
+    body: ScanIn,
+    request: Request,
+    session: Session,
+    current: CurrentTerminal = Depends(get_current_terminal),
 ) -> ScanFound | ScanNotFound | ScanAlreadyRegistered:
     settings: Settings = request.app.state.settings
-    normalized = normalize_scan(body.raw)
-    not_found = ScanNotFound(result="not_found", message=_NOT_FOUND_TEXT)
-    if is_badge_link(normalized, settings.public_base_url):
-        return not_found
-    # TODO B2-03: регулярка активной конференции (`conference.invite_id_regex`) главнее
-    invite_id = extract_invite_id(normalized, settings.invite_id_regex or None)
-    if invite_id is None:
-        return not_found
-    # TODO B2-03: искать участника по external_id активной конференции вместо заглушки ниже
-
-    raw = normalized.lower()
-    if "notfound" in raw:
-        return not_found
-    if "again" in raw:
-        return ScanAlreadyRegistered(
-            result="already_registered",
-            message=(
-                "Вы уже зарегистрированы (20.11, 09:15). "
-                "Если вы не получили бейдж — обратитесь к стойке регистрации"
-            ),
-        )
-    return ScanFound(
-        result="found",
-        scan_id="scan_8f14e45f",
-        participant=ScanParticipant(
-            id=17,
-            full_name="Иванов Пётр Сергеевич",
-            position="не указано",
-            organization="ООО Ромашка",
-        ),
-    )
+    return await scan_flow.scan(session, current, body.raw, settings)
 
 
 @terminal_router.post(

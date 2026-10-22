@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -54,6 +55,21 @@ class Settings(BaseSettings):
     # Публичный адрес системы (ссылка на наклейке: `<адрес>/p/<token>`). Нужен, чтобы узнать
     # QR с наклейки и не принять его за приглашение.
     public_base_url: str | None = None
+
+    # --- Регистрация на терминале (B2-03..05) ---
+    # Часовой пояс мероприятия: в нём показывается время регистрации в сообщениях терминала
+    timezone: str = "Asia/Tomsk"
+    # Запас к сроку жизни `scan_id` сверх `terminal_idle_timeout_s`
+    scan_id_grace_s: int = 30
+
+    @field_validator("timezone")
+    @classmethod
+    def _check_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except Exception as e:  # ZoneInfoNotFoundError, ValueError (некорректный ключ)
+            raise ValueError(f"Неизвестный часовой пояс: {v!r}") from e
+        return v
 
     @field_validator("cors_origins", mode="before")
     @classmethod

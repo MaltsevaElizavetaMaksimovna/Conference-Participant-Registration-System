@@ -142,6 +142,7 @@ REAL: set[tuple[str, str]] = {
     ("PUT", "/api/admin/printers/{}"),
     ("POST", "/api/admin/printers/{}/token"),
     ("GET", "/api/terminal/ping"),
+    ("POST", "/api/terminal/scan"),
     ("POST", "/api/agent/heartbeat"),
 }
 
@@ -587,25 +588,6 @@ async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
 
 
 # --------------------------------------------------------------------- scan
-
-
-@pytest.mark.parametrize(
-    ("raw", "result"),
-    [
-        ("https://reg.example.ru/p/Zk3x9QnS7Vb2LmT4", "found"),
-        ("https://reg.example.ru/p/NOTFOUND123", "not_found"),
-        ("https://reg.example.ru/p/AGAIN456", "already_registered"),
-    ],
-)
-async def test_scan_scenarios(client: httpx.AsyncClient, raw: str, result: str) -> None:
-    r = await client.post("/api/terminal/scan", headers=TERMINAL, json={"raw": raw})
-    assert r.status_code == 200
-    body = TypeAdapter(ScanOut).validate_json(r.content)
-    assert body.result == result
-    if isinstance(body, ScanFound):
-        assert body.participant.full_name == "Иванов Пётр Сергеевич"
-        assert body.participant.organization == "ООО Ромашка"
-        assert body.scan_id
 
 
 async def test_confirm_requires_idempotency_key(client: httpx.AsyncClient) -> None:
