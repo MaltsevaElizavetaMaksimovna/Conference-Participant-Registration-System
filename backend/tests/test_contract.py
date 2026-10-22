@@ -12,7 +12,7 @@ from app.api.common import ErrorOut, Page, PrintJobRefOut
 from app.auth.deps import CurrentStaff, get_current_staff
 from app.badges.schemas import ProfileActive, ProfileRevoked
 from app.core.permissions import Permission
-from app.imports.schemas import ImportAcceptedOut
+from app.imports.schemas import BitrixSettingsOut, ImportAcceptedOut
 from app.participants.schemas import (
     DuplicatesOut,
     ParticipantCard,
@@ -21,9 +21,9 @@ from app.participants.schemas import (
     ParticipantStats,
 )
 from app.printing.schemas import AgentJob
-from app.realtime.schemas import StatsEvent
+from app.realtime.schemas import EVENT_NAMES, ParticipantUpdatedEvent, StatsEvent
 from app.registration.schemas import PrintJobOut, RegisterOut
-from app.templates.schemas import OverflowItem, TemplateElement, TemplateOut
+from app.templates.schemas import OverflowOut, TemplateElement, TemplateOut, TemplateSaveOut
 from app.terminals.deps import (
     CurrentAgent,
     CurrentTerminal,
@@ -46,6 +46,7 @@ CONTRACT: set[tuple[str, str]] = {
     ("POST", "/api/auth/logout"),
     ("GET", "/api/auth/me"),
     ("PUT", "/api/auth/me/printer"),
+    ("PUT", "/api/auth/me/password"),
     ("GET", "/api/admin/roles"),
     ("POST", "/api/admin/roles"),
     ("PUT", "/api/admin/roles/{}"),
@@ -58,12 +59,17 @@ CONTRACT: set[tuple[str, str]] = {
     ("POST", "/api/admin/users/{}/unblock"),
     ("GET", "/api/admin/conferences"),
     ("POST", "/api/admin/conferences"),
+    ("GET", "/api/admin/conferences/{}"),
     ("PUT", "/api/admin/conferences/{}"),
     ("POST", "/api/admin/conferences/{}/activate"),
+    ("GET", "/api/conferences/active"),
+    ("GET", "/api/admin/conferences/{}/imports"),
     ("POST", "/api/admin/conferences/{}/imports"),
     ("GET", "/api/admin/conferences/{}/imports/{}"),
     ("GET", "/api/admin/import-template.xlsx"),
     ("POST", "/api/admin/conferences/{}/imports/bitrix"),
+    ("GET", "/api/admin/conferences/{}/bitrix-settings"),
+    ("PUT", "/api/admin/conferences/{}/bitrix-settings"),
     ("GET", "/api/participants"),
     ("GET", "/api/participants/stats"),
     ("GET", "/api/participants/{}"),
@@ -72,6 +78,7 @@ CONTRACT: set[tuple[str, str]] = {
     ("POST", "/api/participants/check-duplicates"),
     ("POST", "/api/participants"),
     ("GET", "/api/events/stream"),
+    ("GET", "/api/admin/events"),
     # --- действия на стойке
     ("POST", "/api/participants/{}/register"),
     ("POST", "/api/participants/{}/reprint"),
@@ -83,6 +90,8 @@ CONTRACT: set[tuple[str, str]] = {
     ("POST", "/api/admin/conferences/{}/templates"),
     ("GET", "/api/admin/conferences/{}/templates/{}"),
     ("PUT", "/api/admin/conferences/{}/templates/{}"),
+    ("DELETE", "/api/admin/conferences/{}/templates/{}"),
+    ("GET", "/api/admin/conferences/{}/template-fields"),
     ("POST", "/api/admin/conferences/{}/templates/{}/copy-to/{}"),
     ("POST", "/api/admin/conferences/{}/templates/{}/resize"),
     ("GET", "/api/admin/conferences/{}/templates/{}/preview.png"),
@@ -145,11 +154,16 @@ REAL: set[tuple[str, str]] = {
     ("POST", "/api/agent/heartbeat"),
     ("GET", "/api/admin/conferences"),
     ("POST", "/api/admin/conferences"),
+    ("GET", "/api/admin/conferences/{}"),
     ("PUT", "/api/admin/conferences/{}"),
     ("POST", "/api/admin/conferences/{}/activate"),
+    ("GET", "/api/conferences/active"),
+    ("GET", "/api/admin/conferences/{}/imports"),
     ("POST", "/api/admin/conferences/{}/imports"),
     ("GET", "/api/admin/conferences/{}/imports/{}"),
     ("GET", "/api/admin/import-template.xlsx"),
+    ("GET", "/api/admin/conferences/{}/template-fields"),
+    ("GET", "/api/admin/events"),
 }
 
 
@@ -211,7 +225,7 @@ async def test_openapi_has_all_contract_paths(client: httpx.AsyncClient) -> None
         "missing": sorted(CONTRACT - set(ops)),
         "extra": sorted(set(ops) - CONTRACT),
     }
-    assert len(CONTRACT) == 62
+    assert len(CONTRACT) == 71
 
 
 async def test_every_operation_is_tagged_and_named(client: httpx.AsyncClient) -> None:
@@ -391,6 +405,22 @@ CASES: list[Case] = [
         202,
         ImportAcceptedOut,
     ),
+    ("bitrix_get", "GET", "/api/admin/conferences/1/bitrix-settings", {}, 200, BitrixSettingsOut),
+    (
+        "bitrix_put",
+        "PUT",
+        "/api/admin/conferences/1/bitrix-settings",
+        {
+            "json": {
+                "entity": "smart_process",
+                "entity_type_id": 1038,
+                "filter": {"=STAGE_ID": "DT1038_1:NEW"},
+                "field_map": {"last_name": "ufCrm_5_LAST_NAME"},
+            }
+        },
+        200,
+        BitrixSettingsOut,
+    ),
     # participants
     ("p_list", "GET", "/api/participants", {}, 200, Page[ParticipantShort]),
     ("p_stats", "GET", "/api/participants/stats", {}, 200, ParticipantStats),
@@ -449,8 +479,9 @@ CASES: list[Case] = [
         "/api/admin/conferences/1/templates/1",
         {"json": {"name": "Т", "kind": "back", "width_mm": 60, "height_mm": 40, "elements": []}},
         200,
-        TemplateOut,
+        TemplateSaveOut,
     ),
+    ("tpl_delete", "DELETE", "/api/admin/conferences/1/templates/2", {}, 204, None),
     ("tpl_copy", "POST", "/api/admin/conferences/1/templates/1/copy-to/2", {}, 201, TemplateOut),
     (
         "tpl_resize",
@@ -466,7 +497,7 @@ CASES: list[Case] = [
         "/api/admin/conferences/1/templates/1/overflow",
         {},
         200,
-        Page[OverflowItem],
+        OverflowOut,
     ),
     (
         "tpl_test_print",
@@ -653,3 +684,68 @@ async def test_participants_list_filters(client: httpx.AsyncClient) -> None:
     assert await ids("q=петров") == [18]
     bad = await client.get("/api/participants?filter=nope")
     await _assert_error(bad, 422, "validation_error")
+
+
+# ------------------------------------------------- v1.0: новые заглушки
+
+
+async def test_sse_events_have_documented_names_and_shapes(client: httpx.AsyncClient) -> None:
+    r = await client.get("/api/events/stream")
+    events: dict[str, str] = {}
+    name = ""
+    for line in r.text.splitlines():
+        if line.startswith("event: "):
+            name = line.removeprefix("event: ")
+        elif line.startswith("data: "):
+            events[name] = line.removeprefix("data: ")
+    assert set(events) == set(EVENT_NAMES)
+    StatsEvent.model_validate_json(events["stats"])
+    updated = ParticipantUpdatedEvent.model_validate_json(events["participant_updated"])
+    assert set(updated.model_dump()) == {"id", "status", "flags"}
+
+
+async def test_template_delete_in_use_is_409(client: httpx.AsyncClient) -> None:
+    r = await client.delete("/api/admin/conferences/1/templates/1")
+    await _assert_error(r, 409, "template_in_use")
+
+
+async def test_template_save_returns_overflow(client: httpx.AsyncClient) -> None:
+    body = {"name": "Т", "kind": "front", "width_mm": 60, "height_mm": 40}
+    saved = (await client.put("/api/admin/conferences/1/templates/1", json=body)).json()
+    overflow = (await client.get("/api/admin/conferences/1/templates/1/overflow")).json()
+    assert saved["overflow"] == overflow["items"]
+    assert set(saved["overflow"][0]) == {"participant_id", "full_name", "field", "value"}
+    assert set(overflow) == {"items"}
+
+
+async def test_bitrix_settings_never_expose_the_webhook(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    url = "/api/admin/conferences/1/bitrix-settings"
+    assert (await client.get(url)).json()["webhook_configured"] is False
+
+    secret = "https://example.bitrix24.ru/rest/1/very-secret-key/"
+    app.state.settings = app.state.settings.model_copy(update={"bitrix_webhook_url": secret})
+    r = await client.get(url)
+    assert r.json()["webhook_configured"] is True
+    assert "very-secret-key" not in r.text
+    assert "webhook_url" not in r.json()
+
+    bad = await client.put(url, json={"entity": "smart_process"})
+    err = await _assert_error(bad, 422, "validation_error")
+    assert "entity_type_id" in err.details["fields"]
+    bad = await client.put(url, json={"entity": "lead"})
+    await _assert_error(bad, 422, "validation_error")
+
+
+async def test_participants_list_sort(client: httpx.AsyncClient) -> None:
+    async def ids(query: str) -> list[int]:
+        r = await client.get(f"/api/participants?{query}")
+        assert r.status_code == 200, r.text
+        return [p["id"] for p in r.json()["items"]]
+
+    assert await ids("") == [17, 18, 19]  # по ФИО: Иванов, Петрова, Сидоров
+    assert await ids("sort=name") == [17, 18, 19]
+    assert await ids("sort=registered_at") == [17, 19, 18]
+    assert await ids("sort=-registered_at") == [19, 17, 18]
+    await _assert_error(await client.get("/api/participants?sort=id"), 422, "validation_error")

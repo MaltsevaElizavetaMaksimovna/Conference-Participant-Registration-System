@@ -11,6 +11,7 @@ ParticipantFlag = Literal[
     "error_reported", "sticker_not_printed", "data_changed", "manual_added", "foreign_code"
 ]
 ParticipantFilter = Literal["all", "registered", "not_registered", "flagged"]
+ParticipantSort = Literal["name", "registered_at", "-registered_at"]
 RegistrationSource = Literal["terminal", "desk"]
 EventType = Literal[
     "scan_not_found",
