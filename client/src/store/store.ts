@@ -1,5 +1,5 @@
 import {configureStore} from "@reduxjs/toolkit";
-import {scanReducer} from "~/store/reducers/TerminalSlice";
+import {terminalReducer} from "~/store/reducers/TerminalSlice";
 import {adminReducer} from "~/store/reducers/AdminSlice";
 import {listenerMiddleware} from "~/store/listenerMiddleware";
 import '~/store/listeners'
@@ -9,7 +9,7 @@ import {authReducer} from "~/store/reducers/AuthSlice";
 
 export const store = configureStore({
     reducer: {
-        scanReducer: scanReducer,
+        terminalReducer: terminalReducer,
         adminReducer: adminReducer,
         conferenceReducer: conferenceReducer,
         authReducer: authReducer,

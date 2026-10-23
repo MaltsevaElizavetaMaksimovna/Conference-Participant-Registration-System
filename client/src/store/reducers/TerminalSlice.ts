@@ -1,6 +1,4 @@
 import {createAsyncThunk, createSlice, type PayloadAction} from "@reduxjs/toolkit";
-import type {UserData} from "~/models/UserData";
-import UserService from "~/services/UserService";
 import type {Errors} from "~/models/Errors";
 import {parseError} from "~/utils/ParseError";
 import type {
@@ -12,7 +10,6 @@ import type {
     ScanFound,
     TerminalPrintJobOut
 } from "~/models/api";
-import {terminalApi} from "~/api";
 import {type ScanResult, TerminalService} from "~/services/TerminalService";
 
 export type TerminalScreen =
@@ -187,7 +184,7 @@ export const terminalSlice = createSlice({
                 state.connection = 'offline'
             }
 
-            if(action.payload?.code === 'terminal_disabled') {
+            if (action.payload?.code === 'terminal_disabled') {
                 state.connection = 'disabled'
                 state.message = action.payload.message
             }
@@ -216,41 +213,74 @@ export const terminalSlice = createSlice({
                 state.participant = action.payload.participant
                 state.idempotencyKey = crypto.randomUUID()
                 state.message = null
-            } else if(result === 'already_registered') {
-                state.screen ='error'
+            } else if (result === 'already_registered') {
+                state.screen = 'error'
                 state.message = action.payload.message
             } else if (result === 'not_found') {
-                state.screen ='error'
+                state.screen = 'error'
                 state.message = action.payload.message
             }
         })
 
-        builder.addCase(scanCode.pending, (state) => {
-            state.screen = 'scanning'
+        builder.addCase(confirmRegistration.pending, (state) => {
+            state.screen = 'printing'
             state.error = null
         })
-        builder.addCase(scanCode.rejected, (state, action) => {
+        builder.addCase(confirmRegistration.rejected, (state, action) => {
             state.screen = 'error'
             state.error = action.payload ?? null
-            state.message = action.payload?.message ?? 'Не удалось отсканировать код'
+            state.message = action.payload?.message ?? 'Не удалось зарегистрировать'
         })
-        builder.addCase(scanCode.fulfilled, (state, action) => {
-            const {result} = action.payload
-            if (result === 'found') {
-                state.screen = 'confirm'
-                state.scanId = action.payload.scan_id
-                state.participant = action.payload.participant
-                state.idempotencyKey = crypto.randomUUID()
-                state.message = null
-            } else if(result === 'already_registered') {
-                state.screen ='error'
-                state.message = action.payload.message
-            } else if (result === 'not_found') {
-                state.screen ='error'
-                state.message = action.payload.message
+        builder.addCase(confirmRegistration.fulfilled, (state, action) => {
+            const {result, message, print_job_id} = action.payload
+
+            if (result === 'already_registered') {
+                state.screen = 'error'
+                state.message = message
+                return
+            }
+
+            if (print_job_id) {
+                state.screen = 'printing'
+                state.printJobId = print_job_id
+            } else {
+                state.screen = 'success'
+                state.message = message
+            }
+        })
+
+        builder.addCase(reportError.rejected, (state, action) => {
+            state.screen = 'error'
+            state.error = action.payload ?? null
+            state.message = action.payload?.message ?? 'Не удалось сообщить об ошибке'
+        })
+        builder.addCase(reportError.fulfilled, (state, action) => {
+            state.screen = 'success'
+            state.message = action.payload.message
+        })
+
+        builder.addCase(fetchTerminalJob.fulfilled, (state, action) => {
+            const job = action.payload
+            state.printStatus = job
+
+            if (job.status === 'done') {
+                state.screen = 'success'
+                state.message = job.message
+            } else if (job.status === 'error') {
+                state.screen = 'error'
+                state.message = job.message
             }
         })
     }
 })
 
-export const scanReducer = terminalSlice.reducer;
+export const {
+    resetToIdle,
+    setOffline,
+    setTerminalDisabled,
+    showResult,
+    showConfirmScreen,
+    clearError
+} = terminalSlice.actions
+
+export const terminalReducer = terminalSlice.reducer;

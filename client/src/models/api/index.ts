@@ -11,6 +11,13 @@ export type ParticipantShort = components['schemas']['ParticipantShort'];
 export type ParticipantCreateIn = components['schemas']['ParticipantCreateIn'];
 export type ParticipantUpdateIn = components['schemas']['ParticipantUpdateIn'];
 export type ParticipantStats = components['schemas']['ParticipantStats'];
+export type ParticipantCreatedOut = components['schemas']['ParticipantCreatedOut'];
+
+export type DuplicatesOut = components['schemas']['DuplicatesOut'];
+export type CheckDuplicatesIn = components['schemas']['CheckDuplicatesIn'];
+
+export type RegisterOut = components['schemas']['RegisterOut'];
+export type RegisterIn = components['schemas']['RegisterIn'];
 
 export type ConferenceOut = components['schemas']['ConferenceOut'];
 export type ActiveConferenceOut = components['schemas']['ActiveConferenceOut'];

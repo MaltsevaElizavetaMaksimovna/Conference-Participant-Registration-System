@@ -9,7 +9,7 @@ import type {
     PageConferenceOut,
 } from "~/models/api";
 
-type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
+export type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
 
 
 export interface ConferenceState {
