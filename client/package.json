@@ -21,12 +21,10 @@
     "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^22",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.2",
-    "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^8.0.3"
   }

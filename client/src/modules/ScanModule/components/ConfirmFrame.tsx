@@ -1,13 +1,13 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
 import type {UserData} from "~/models/UserData";
 import {useAppDispatch} from "~/hooks/redux";
-import {completeRegistration, scanSlice} from "~/store/reducers/ScanSlice";
+import {completeRegistration, terminalSlice} from "~/store/reducers/TerminalSlice";
 
 interface confirmFrameProps {
     userData: UserData;
 }
 export const ConfirmFrame = ({userData}: confirmFrameProps) => {
-    const {flagMismatch} = scanSlice.actions
+    const {flagMismatch} = terminalSlice.actions
     const dispatch = useAppDispatch();
 
      function handleReject() {

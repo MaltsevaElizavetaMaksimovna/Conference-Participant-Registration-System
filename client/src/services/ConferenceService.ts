@@ -1,18 +1,32 @@
-import $api from "~/http/api";
+import {adminApi} from "~/api/adminApi";
+import type {ActiveConferenceOut, ConferenceIn, ConferenceOut, PageConferenceOut} from "~/models/api";
 import type {AxiosResponse} from "axios";
-import type {Conference, ConferenceTemplates} from "~/store/reducers/ConferenceSlice";
 
 
 export default class ConferenceService {
-    static async getSettings(): Promise<AxiosResponse<Conference>> {
-        return $api.get<Conference>('/conferences/getSettings', {});
+    static async getActive(): Promise<AxiosResponse<ActiveConferenceOut | null>> {
+        return adminApi.get<ActiveConferenceOut | null>('/conferences/active');
     }
 
-    static async getTemplates(conferenceId: string): Promise<AxiosResponse<ConferenceTemplates>>{
-        return $api.get<ConferenceTemplates>(`/conferences/${conferenceId}/templates`, {});
+    static async list(limit = 50, offset = 0): Promise<AxiosResponse<PageConferenceOut>> {
+        return adminApi.get<PageConferenceOut>('/admin/conferences', {
+            params: {limit, offset},
+        });
     }
 
-    static async updateSettings(patch: Partial<Conference>): Promise<AxiosResponse<Conference>> {
-        return $api.patch<Conference>('/conferences/patch', patch, {});
+    static async getById(id: number): Promise<AxiosResponse<ConferenceOut>> {
+        return adminApi.get<ConferenceOut>(`/admin/conferences/${id}`);
+    }
+
+    static async create(data: ConferenceIn): Promise<AxiosResponse<ConferenceOut>> {
+        return adminApi.post<ConferenceOut>('/admin/conferences', data);
+    }
+
+    static async update(id: number, data: ConferenceIn): Promise<AxiosResponse<ConferenceOut>> {
+        return adminApi.put<ConferenceOut>(`/admin/conferences/${id}`, data);
+    }
+
+    static async activate(id: number): Promise<AxiosResponse<ConferenceOut>> {
+        return adminApi.post<ConferenceOut>(`/admin/conferences/${id}/activate`);
     }
 }

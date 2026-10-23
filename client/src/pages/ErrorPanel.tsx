@@ -1,5 +1,5 @@
 import {AlreadyRegisteredFrame} from "~/modules/ErrorModule/components/AlreadyRegisteredFrame";
-import type {ScanState} from "~/store/reducers/ScanSlice";
+import type {ScanState} from "~/store/reducers/TerminalSlice";
 import {
     NetworkErrorFrame,
     ServerErrorFrame,
@@ -45,6 +45,8 @@ export const ErrorPanel = ({scanState}: ErrorPanelProps) => {
             return (
                 <UnknownErrorFrame error={scanState.error!}/>
             )
+        default:
+            const exhaustiveCheck: never = scanState.error!.errorType
     }
 
 };

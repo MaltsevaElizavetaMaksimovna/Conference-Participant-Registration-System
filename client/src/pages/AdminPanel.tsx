@@ -31,5 +31,7 @@ export const AdminPanel = () => {
             return (
                 <AdminMembers/>
             )
+        default:
+            const exhaustiveCheck: never = adminState.currentTab
     }
 };

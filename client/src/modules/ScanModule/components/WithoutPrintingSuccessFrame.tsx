@@ -1,9 +1,9 @@
 import {TerminalBlock} from "~/components/TerminalBlock";
-import {scanSlice} from "~/store/reducers/ScanSlice";
+import {terminalSlice} from "~/store/reducers/TerminalSlice";
 import {useAppDispatch} from "~/hooks/redux";
 
 export const WithoutPrintingSuccessFrame = () => {
-    const {resetStatus} = scanSlice.actions
+    const {resetStatus} = terminalSlice.actions
     const dispatch = useAppDispatch()
 
     function handleSubmit() {

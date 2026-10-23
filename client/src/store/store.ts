@@ -1,9 +1,10 @@
 import {configureStore} from "@reduxjs/toolkit";
-import {scanReducer} from "~/store/reducers/ScanSlice";
+import {scanReducer} from "~/store/reducers/TerminalSlice";
 import {adminReducer} from "~/store/reducers/AdminSlice";
 import {listenerMiddleware} from "~/store/listenerMiddleware";
 import '~/store/listeners'
 import {conferenceReducer} from "~/store/reducers/ConferenceSlice";
+import {authReducer} from "~/store/reducers/AuthSlice";
 
 
 export const store = configureStore({
@@ -11,6 +12,7 @@ export const store = configureStore({
         scanReducer: scanReducer,
         adminReducer: adminReducer,
         conferenceReducer: conferenceReducer,
+        authReducer: authReducer,
     },
     middleware: (getDefaultMiddleware) =>
         getDefaultMiddleware().prepend(listenerMiddleware.middleware),

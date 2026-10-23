@@ -2,7 +2,7 @@ import {TerminalBlock} from "~/components/TerminalBlock";
 import {useCallback} from "react";
 import {type IDetectedBarcode, Scanner} from '@yudiel/react-qr-scanner';
 import {useAppDispatch, useAppSelector} from "~/hooks/redux";
-import {findUser} from "~/store/reducers/ScanSlice";
+import {findUser} from "~/store/reducers/TerminalSlice";
 import {Spinner} from "~/components/Spinner";
 
 export const ScanFrame = () => {

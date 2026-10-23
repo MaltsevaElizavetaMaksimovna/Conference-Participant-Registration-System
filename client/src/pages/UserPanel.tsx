@@ -42,6 +42,8 @@ export const UserPanel = () => {
             return badgeType === 'without'
                 ? <WithoutPrintingSuccessFrame/>
                 : <PrintingSuccessFrame/>
+        default:
+            const exhaustiveCheck: never = scanState.status
     }
 
 };

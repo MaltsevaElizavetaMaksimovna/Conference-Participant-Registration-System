@@ -1,5 +1,5 @@
 import {startAppListening} from "~/store/listenerMiddleware";
-import {completeRegistration, scanSlice} from "~/store/reducers/ScanSlice";
+import {completeRegistration, terminalSlice} from "~/store/reducers/TerminalSlice";
 import {AUTO_RESET_TIMEOUT, FINISH_OR_ERROR_RESET_TIMEOUT, POLLING_INTERVAL} from "~/config/consts";
 import {isAnyOf} from "@reduxjs/toolkit";
 import {adminSlice, fetchUsers} from "~/store/reducers/AdminSlice";
@@ -8,7 +8,7 @@ import {
     fetchConferenceSettings,
 } from "~/store/reducers/ConferenceSlice";
 
-const {resetStatus, flagMismatch, finishWithoutPrinting, errorWhileFetchingConference} = scanSlice.actions;
+const {resetStatus, flagMismatch, finishWithoutPrinting, errorWhileFetchingConference} = terminalSlice.actions;
 const {setPanelOpen, setPanelClose} = adminSlice.actions;
 const {terminalMounted} = conferenceSlice.actions;
 
