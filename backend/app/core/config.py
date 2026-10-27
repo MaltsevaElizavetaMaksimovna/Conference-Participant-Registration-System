@@ -1,6 +1,7 @@
 """Настройки приложения из переменных окружения с префиксом RS_."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
@@ -8,6 +9,8 @@ from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_SECRET_KEY = "dev-secret-change-me"
+# backend/.data/photos: рядом с пакетом `app`, а не относительно текущего каталога процесса
+DEFAULT_PHOTO_DIR = Path(__file__).resolve().parents[2] / ".data" / "photos"
 
 
 class Settings(BaseSettings):
@@ -19,6 +22,8 @@ class Settings(BaseSettings):
     secret_key: str = DEFAULT_SECRET_KEY
     # Список через запятую: RS_CORS_ORIGINS=http://localhost:5173,https://reg.example.ru
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    # Каталог фото участников; `participant.photo_path` в БД — путь относительно него (B2-13)
+    photo_dir: Path = DEFAULT_PHOTO_DIR
     # Первый администратор: создаётся командой `python -m app.cli bootstrap`, если сотрудников нет
     bootstrap_admin_login: str | None = None
     bootstrap_admin_password: str | None = None
@@ -40,7 +45,9 @@ class Settings(BaseSettings):
     # Ограничение перебора пароля: N неудач на (ip, логин) за окно, затем 429
     login_max_failures: int = 10
     login_fail_window_s: int = 300
-    public_profile_rate_limit_per_min: int = 30
+    # Публичный профиль по QR (B2-13): не больше N запросов за окно с одного IP, затем 429
+    public_profile_rate_limit: int = 60
+    public_profile_rate_window_s: int = 60
     import_max_file_mb: int = 10
     import_max_rows: int = 5000
     # Терминалы и принтеры (B2-01)
