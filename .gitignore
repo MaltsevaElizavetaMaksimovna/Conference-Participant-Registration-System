@@ -22,3 +22,6 @@ spike_out/
 Thumbs.db
 .idea/
 .vscode/
+
+# Фото участников (RS_PHOTO_DIR по умолчанию)
+backend/.data/

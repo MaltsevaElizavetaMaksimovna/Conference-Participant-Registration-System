@@ -10,7 +10,6 @@ from pydantic import TypeAdapter
 
 from app.api.common import ErrorOut, Page, PrintJobRefOut
 from app.auth.deps import CurrentStaff, get_current_staff
-from app.badges.schemas import ProfileActive, ProfileRevoked
 from app.core.permissions import Permission
 from app.imports.schemas import BitrixSettingsOut, ImportAcceptedOut
 from app.participants.schemas import (
@@ -164,6 +163,8 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/admin/import-template.xlsx"),
     ("GET", "/api/admin/conferences/{}/template-fields"),
     ("GET", "/api/admin/events"),
+    ("GET", "/api/public/profile/{}"),
+    ("GET", "/api/public/profile/{}/photo"),
 }
 
 
@@ -576,37 +577,6 @@ async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
 
 # Отключённый терминал (423) и неверные токены проверяются по-настоящему в test_terminals.py
 # и test_agent_auth.py.
-
-
-# ---------------------------------------------------------------- профиль
-
-
-async def test_profile_active(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/public/profile/abc123")
-    assert r.status_code == 200
-    body = ProfileActive.model_validate_json(r.content)
-    assert body.status == "active"
-    assert body.photo_url == "/api/public/profile/abc123/photo"
-    photo = await client.get(body.photo_url)
-    assert photo.status_code == 200
-    assert photo.headers["content-type"] == "image/jpeg"
-
-
-async def test_profile_revoked(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/public/profile/revoked")
-    assert r.status_code == 200
-    assert r.json() == {"status": "revoked"}
-    ProfileRevoked.model_validate_json(r.content)
-    assert (await client.get("/api/public/profile/revoked/photo")).status_code == 404
-
-
-async def test_profile_missing_is_404_in_error_format(client: httpx.AsyncClient) -> None:
-    for url in ("/api/public/profile/missing", "/api/public/profile/missing/photo"):
-        r = await client.get(url)
-        assert r.status_code == 404
-        err = ErrorOut.model_validate_json(r.content)
-        assert err.code == "profile_not_found"
-        assert err.details == {}
 
 
 # ------------------------------------------------------------------- SSE
