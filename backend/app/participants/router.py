@@ -1,16 +1,20 @@
-"""Участники: список, поиск, счётчик (B1-09, B1-10); остальное — ЗАГЛУШКИ (B1-06, B1-12, B1-13)."""
+"""Участники: список, поиск, счётчик, карточка, фото, правка; добавление — ЗАГЛУШКИ (B1-13)."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import STUB_TAG, Limit, Offset, Page, err
 from app.api.deps import staff
-from app.api.stubs import JPEG_1X1, T0
+from app.api.stubs import T0
+from app.auth.deps import CurrentStaff, get_current_staff
+from app.badges.service import resolve_photo
 from app.core.db import get_session
 from app.core.errors import AppError
-from app.participants import search
+from app.participants import card as cards
+from app.participants import editing, search
 from app.participants.schemas import (
     CheckDuplicatesIn,
     DuplicatesOut,
@@ -253,56 +257,78 @@ async def participants_create(body: ParticipantCreateIn) -> ParticipantCreatedOu
 @router.get(
     "/{participant_id}",
     operation_id="participants_get",
-    tags=[STUB_TAG],
     summary="Карточка участника",
     description=(
-        "Разрешение: `participants.view`. Поле `actions` бэкенд вычисляет сам: кнопка неактивна, "
-        "если флаг `false`, подсказка — в `actions.reasons`. Заглушка знает id 17 "
-        "(зарегистрирован), 18 (нет), 19 (без наклейки); остальные дают 404."
+        "Разрешение: `participants.view`. Участник активной конференции (RG-03): данные, статус, "
+        "место и время регистрации, пометки с временем и автором, доп. поля, фото и ссылка на "
+        "профиль, счётчики печати и повторных сканов, история изменений и события. Поле "
+        "`actions` бэкенд вычисляет сам: кнопка неактивна, если флаг `false`, подсказка — в "
+        "`actions.reasons`."
     ),
     response_model=ParticipantCard,
     dependencies=staff("participants.view"),
     responses=err(401, 403, (404, "`participant_not_found`: участник не найден")),
 )
-async def participants_get(participant_id: int) -> ParticipantCard:
-    return sample_card(participant_id)
+async def participants_get(
+    participant_id: int,
+    request: Request,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
+) -> ParticipantCard:
+    return await cards.get_card(session, participant_id, current, request.app.state.settings)
 
 
 @router.get(
     "/{participant_id}/photo",
     operation_id="participants_photo",
-    tags=[STUB_TAG],
     summary="Фото участника",
-    description="Разрешение: `participants.view`. JPEG; заглушка отдаёт пиксель 1×1.",
+    description="Разрешение: `participants.view`. JPEG из каталога фото.",
     response_class=Response,
     responses={
         200: {
             "description": "Фото в формате JPEG",
             "content": {"image/jpeg": {"schema": {"type": "string", "format": "binary"}}},
         },
-        **err(401, 403, (404, "`photo_not_found`: у участника нет фото")),
+        **err(
+            401,
+            403,
+            (404, "`participant_not_found`: участник не найден; `photo_not_found`: нет фото"),
+        ),
     },
     dependencies=staff("participants.view"),
 )
-async def participants_photo(participant_id: int) -> Response:
-    sample_short(participant_id)
-    return Response(content=JPEG_1X1, media_type="image/jpeg")
+async def participants_photo(
+    participant_id: int, request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
+    p, _ = await cards.find_active(session, participant_id)
+    path = resolve_photo(request.app.state.settings.photo_dir, p.photo_path)
+    if path is None:
+        raise AppError("photo_not_found", "Фото не найдено", 404)
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.patch(
     "/{participant_id}",
     operation_id="participants_update",
-    tags=[STUB_TAG],
     summary="Исправить данные участника",
     description=(
-        "Разрешение: `participants.edit`. Передавайте только изменённые поля. "
-        "Изменения попадают в журнал и включают пометку «Данные изменены» (ER-03)."
+        "Разрешение: `participants.edit`. Передавайте только изменённые поля (RG-06): значение "
+        "из пробелов считается пустым, фамилия и имя обязательны. Каждое изменённое поле "
+        "попадает в историю (ER-03) и включает пометку «Данные изменены» (ER-02); регистрация "
+        "не отменяется. Ответ — обновлённая карточка."
     ),
     response_model=ParticipantCard,
     dependencies=staff("participants.edit", write=True),
-    responses=err(401, 403, 404, 422),
+    responses=err(401, 403, (404, "`participant_not_found`: участник не найден"), 422),
 )
-async def participants_update(participant_id: int, body: ParticipantUpdateIn) -> ParticipantCard:
-    card = sample_card(participant_id)
-    update = body.model_dump(exclude_unset=True)
-    return card.model_copy(update=update)
+async def participants_update(
+    participant_id: int,
+    body: ParticipantUpdateIn,
+    request: Request,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
+) -> ParticipantCard:
+    await editing.update_participant(
+        session, participant_id, body.model_dump(exclude_unset=True), current
+    )
+    return await cards.get_card(session, participant_id, current, request.app.state.settings)

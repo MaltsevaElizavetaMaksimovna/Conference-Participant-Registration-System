@@ -148,15 +148,31 @@ class ParticipantUpdateIn(BaseModel):
     position_en: str | None = Field(default=None, max_length=200)
     organization_en: str | None = Field(default=None, max_length=200)
 
+    # Валидаторы вызываются только для переданных полей: явный null фамилии/имени — ошибка
     @field_validator("last_name")
     @classmethod
     def _last(cls, v: str | None) -> str | None:
-        return _not_blank(v, "Укажите фамилию")
+        return _not_blank(v if v is not None else "", "Укажите фамилию")
 
     @field_validator("first_name")
     @classmethod
     def _first(cls, v: str | None) -> str | None:
-        return _not_blank(v, "Укажите имя")
+        return _not_blank(v if v is not None else "", "Укажите имя")
+
+    @field_validator(
+        "middle_name",
+        "position",
+        "organization",
+        "last_name_en",
+        "first_name_en",
+        "middle_name_en",
+        "position_en",
+        "organization_en",
+    )
+    @classmethod
+    def _optional(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        return v or None
 
 
 class CheckDuplicatesIn(BaseModel):
