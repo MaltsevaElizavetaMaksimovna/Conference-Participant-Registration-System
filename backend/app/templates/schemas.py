@@ -1,13 +1,23 @@
 """Схемы шаблонов наклеек (PR-01..PR-05)."""
 
+import re
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.imports.columns import MAX_SLUG_LEN
 
 TemplateKind = Literal["front", "back", "changed", "changed_back"]
 ElementType = Literal["field", "text", "qr"]
 Align = Literal["left", "center", "right"]
+
+# Ключи `elements[].field`; список для фронта отдаёт `GET …/template-fields` (fields.py)
+STANDARD_KEYS = ("last_name", "first_name", "middle_name", "position", "organization")
+FIELD_KEYS = frozenset((*STANDARD_KEYS, *(f"{k}_en" for k in STANDARD_KEYS), "full_name"))
+# Доп. поле может появиться после загрузки участников, поэтому проверяем только формат ключа
+EXTRA_KEY = re.compile(rf"extra\.[a-z0-9_]{{1,{MAX_SLUG_LEN}}}")
+MAX_ELEMENTS = 50
 
 
 class TemplateElement(BaseModel):
@@ -17,7 +27,9 @@ class TemplateElement(BaseModel):
         description="Для type=field: `last_name`, `organization`, … или `extra.<ключ>`",
         examples=["last_name"],
     )
-    text: str | None = Field(default=None, description="Для type=text", examples=[None])
+    text: str | None = Field(
+        default=None, max_length=500, description="Для type=text", examples=[None]
+    )
     x_mm: float = Field(examples=[3])
     y_mm: float = Field(examples=[3])
     w_mm: float = Field(gt=0, examples=[54])
@@ -30,6 +42,19 @@ class TemplateElement(BaseModel):
     align: Align = "left"
     bold: bool = False
 
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.type == "field":
+            if not self.field:
+                raise ValueError("Выберите поле участника")
+            if self.field not in FIELD_KEYS and not EXTRA_KEY.fullmatch(self.field):
+                raise ValueError(f"Неизвестное поле «{self.field}»")
+        if self.type == "text" and not (self.text or "").strip():
+            raise ValueError("Введите текст надписи")
+        if self.min_font_size > self.font_size:
+            raise ValueError("Минимальный кегль не может быть больше основного")
+        return self
+
 
 class TemplateIn(BaseModel):
     name: str = Field(min_length=1, max_length=100, examples=["Лицевая сторона"])
@@ -41,7 +66,7 @@ class TemplateIn(BaseModel):
     gap_mm: float = Field(
         default=2, ge=0, le=20, description="Зазор между наклейками", examples=[2]
     )
-    elements: list[TemplateElement] = Field(default_factory=list)
+    elements: list[TemplateElement] = Field(default_factory=list, max_length=MAX_ELEMENTS)
 
     @field_validator("name")
     @classmethod
@@ -52,11 +77,27 @@ class TemplateIn(BaseModel):
         return v
 
 
+class TemplateWarning(BaseModel):
+    """Предупреждение о шаблоне: сохранить можно, но результат печати может пострадать."""
+
+    element: int = Field(description="Индекс элемента в `elements`", examples=[0])
+    code: Literal["near_edge"] = Field(
+        description="`near_edge` — элемент у самого края, принтер может его обрезать"
+    )
+    message: str = Field(
+        examples=["Элемент 1 ближе 3 мм к краю наклейки: принтер может его обрезать"]
+    )
+
+
 class TemplateOut(TemplateIn):
     id: int = Field(examples=[1])
     conference_id: int = Field(examples=[1])
     version: int = Field(description="Растёт при каждом сохранении", examples=[3])
     updated_at: datetime = Field(examples=["2026-11-19T12:00:00+03:00"])
+    warnings: list[TemplateWarning] = Field(
+        default_factory=list,
+        description="Предупреждения (элементы у самого края); на сохранение не влияют",
+    )
 
 
 class ResizeIn(BaseModel):

@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic import TypeAdapter
 
-from app.api.common import ErrorOut, Page, PrintJobRefOut
+from app.api.common import ErrorOut, PrintJobRefOut
 from app.auth.deps import CurrentStaff, get_current_staff
 from app.core.permissions import Permission
 from app.imports.schemas import BitrixSettingsOut, ImportAcceptedOut
@@ -21,7 +21,7 @@ from app.participants.schemas import (
 from app.printing.schemas import AgentJob
 from app.realtime.schemas import EVENT_NAMES, ParticipantUpdatedEvent, StatsEvent
 from app.registration.schemas import PrintJobOut, RegisterOut
-from app.templates.schemas import OverflowOut, TemplateElement, TemplateOut, TemplateSaveOut
+from app.templates.schemas import OverflowOut, TemplateElement, TemplateOut
 from app.terminals.deps import (
     CurrentAgent,
     CurrentTerminal,
@@ -161,6 +161,12 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/admin/conferences/{}/imports/{}"),
     ("GET", "/api/admin/import-template.xlsx"),
     ("GET", "/api/admin/conferences/{}/template-fields"),
+    ("GET", "/api/admin/conferences/{}/templates"),
+    ("POST", "/api/admin/conferences/{}/templates"),
+    ("GET", "/api/admin/conferences/{}/templates/{}"),
+    ("PUT", "/api/admin/conferences/{}/templates/{}"),
+    ("DELETE", "/api/admin/conferences/{}/templates/{}"),
+    ("POST", "/api/admin/conferences/{}/templates/{}/copy-to/{}"),
     ("GET", "/api/admin/events"),
     ("GET", "/api/public/profile/{}"),
     ("GET", "/api/public/profile/{}/photo"),
@@ -463,26 +469,6 @@ CASES: list[Case] = [
     ("foreign", "POST", "/api/participants/17/foreign-code", {}, 200, PrintJobRefOut),
     ("print_job", "GET", "/api/print-jobs/501", {}, 200, PrintJobOut),
     # templates
-    ("tpl_list", "GET", "/api/admin/conferences/1/templates", {}, 200, Page[TemplateOut]),
-    (
-        "tpl_create",
-        "POST",
-        "/api/admin/conferences/1/templates",
-        {"json": {"name": "Т", "kind": "front", "width_mm": 60, "height_mm": 40}},
-        201,
-        TemplateOut,
-    ),
-    ("tpl_get", "GET", "/api/admin/conferences/1/templates/1", {}, 200, TemplateOut),
-    (
-        "tpl_put",
-        "PUT",
-        "/api/admin/conferences/1/templates/1",
-        {"json": {"name": "Т", "kind": "back", "width_mm": 60, "height_mm": 40, "elements": []}},
-        200,
-        TemplateSaveOut,
-    ),
-    ("tpl_delete", "DELETE", "/api/admin/conferences/1/templates/2", {}, 204, None),
-    ("tpl_copy", "POST", "/api/admin/conferences/1/templates/1/copy-to/2", {}, 201, TemplateOut),
     (
         "tpl_resize",
         "POST",
@@ -656,20 +642,6 @@ async def test_sse_events_have_documented_names_and_shapes(client: httpx.AsyncCl
     StatsEvent.model_validate_json(events["stats"])
     updated = ParticipantUpdatedEvent.model_validate_json(events["participant_updated"])
     assert set(updated.model_dump()) == {"id", "status", "flags"}
-
-
-async def test_template_delete_in_use_is_409(client: httpx.AsyncClient) -> None:
-    r = await client.delete("/api/admin/conferences/1/templates/1")
-    await _assert_error(r, 409, "template_in_use")
-
-
-async def test_template_save_returns_overflow(client: httpx.AsyncClient) -> None:
-    body = {"name": "Т", "kind": "front", "width_mm": 60, "height_mm": 40}
-    saved = (await client.put("/api/admin/conferences/1/templates/1", json=body)).json()
-    overflow = (await client.get("/api/admin/conferences/1/templates/1/overflow")).json()
-    assert saved["overflow"] == overflow["items"]
-    assert set(saved["overflow"][0]) == {"participant_id", "full_name", "field", "value"}
-    assert set(overflow) == {"items"}
 
 
 async def test_bitrix_settings_never_expose_the_webhook(
