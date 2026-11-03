@@ -1,4 +1,4 @@
-"""Общие утилиты участников: поисковая строка и флаг «Данные изменены».
+"""Общие утилиты участников: поисковая строка, флаг «Данные изменены», пометки.
 
 Статус регистрации здесь не меняется: это делает только `registration.service`.
 """
@@ -6,6 +6,8 @@
 from collections.abc import Collection
 
 from app.core.text import normalize_search
+from app.models.participant import Participant
+from app.participants.schemas import ParticipantFlag
 
 # Поля ФИО, из которых строится `search_norm`
 NAME_FIELDS = ("last_name", "first_name", "middle_name")
@@ -23,3 +25,19 @@ def is_data_changed(manual_fields: Collection[str] | None, is_manual_added: bool
     повторной загрузкой файла, флаг не включают: он про правки на месте регистрации.
     """
     return is_manual_added or bool(manual_fields)
+
+
+def participant_flags(p: Participant) -> list[ParticipantFlag]:
+    """Пометки участника для значков в списке, в порядке `ParticipantFlag`."""
+    flags: list[ParticipantFlag] = []
+    if p.error_reported_at is not None:
+        flags.append("error_reported")
+    if p.sticker_not_printed:
+        flags.append("sticker_not_printed")
+    if is_data_changed(p.manual_fields, p.is_manual_added):
+        flags.append("data_changed")
+    if p.is_manual_added:
+        flags.append("manual_added")
+    if p.foreign_code_at is not None:
+        flags.append("foreign_code")
+    return flags
