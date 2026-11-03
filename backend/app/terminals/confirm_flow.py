@@ -15,6 +15,7 @@ from app.core.errors import AppError
 from app.models.conference import Conference
 from app.models.participant import Participant
 from app.registration import messages, service
+from app.registration.result import RegistrationResult, find_replay, idempotency_scope
 from app.terminals.deps import CurrentTerminal
 from app.terminals.scan_id import verify_scan_id
 from app.terminals.schemas import ConfirmOut
@@ -40,7 +41,7 @@ async def require_active_participant(session: AsyncSession, participant_id: int)
         raise AppError("participant_not_found", messages.NOT_FOUND, 404)
 
 
-def confirm_out(result: service.RegistrationResult, settings: Settings) -> ConfirmOut:
+def confirm_out(result: RegistrationResult, settings: Settings) -> ConfirmOut:
     """Ответ confirm строится только из сохранённого результата: повтор даёт тот же ответ."""
     if result.result == "already_registered":
         tz = ZoneInfo(settings.timezone)
@@ -66,10 +67,10 @@ async def confirm(
     scan_id: str,
     idempotency_key: str,
 ) -> ConfirmOut:
-    scope = service.idempotency_scope(RegSource.TERMINAL, terminal.terminal_id, None)
+    scope = idempotency_scope(RegSource.TERMINAL, terminal.terminal_id, None)
     # Повтор уже обработанного запроса отвечает тем же, даже если scan_id успел протухнуть:
     # клиент не получил ответ и просто повторил
-    result = await service.find_replay(session, scope, idempotency_key, participant_id)
+    result = await find_replay(session, scope, idempotency_key, participant_id)
     if result is None:
         check_scan_id(settings, terminal, participant_id, scan_id)
         await require_active_participant(session, participant_id)
