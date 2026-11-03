@@ -11,9 +11,10 @@
 условие (READ COMMITTED) и не находит ни одной строки: он получает `already_registered`.
 Никакого «сначала SELECT, потом UPDATE» тут нет, поэтому гонка DP-02 решается самой БД.
 
-Всё происходит в ОДНОЙ транзакции: запись об идемпотентности, UPDATE, событие, код бейджа и
-задание печати. Печатать агент начнёт только после COMMIT (NF-05: наклейка выходит только
-после того, как сервер подтвердил запись).
+Всё происходит в ОДНОЙ транзакции: запись об идемпотентности, UPDATE, событие, код бейджа,
+задание печати и `pg_notify` для панели (B2-04a). Печатать агент начнёт только после COMMIT
+(NF-05: наклейка выходит только после того, как сервер подтвердил запись), и панель тоже
+узнает о регистрации только после него.
 
 Тип результата и повтор по ключу идемпотентности — в `app.registration.result`.
 
@@ -39,6 +40,7 @@ from app.core.enums import (
     RegSource,
 )
 from app.core.errors import AppError
+from app.eventlog.notify import notify_participant_updated
 from app.models.conference import Conference
 from app.models.device import Terminal
 from app.models.participant import EventLog, Participant
@@ -301,6 +303,9 @@ async def _after_win(
                 payload={"reason": "no_printer"},
             )
         )
+
+    # Панель узнает о регистрации после COMMIT этой же транзакции (RG-04)
+    await notify_participant_updated(session, participant_id, conference_id)
 
     terminal_name = user_login = None
     if terminal_id is not None:
