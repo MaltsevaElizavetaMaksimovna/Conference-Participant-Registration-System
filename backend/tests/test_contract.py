@@ -172,6 +172,9 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/public/profile/{}/photo"),
     ("GET", "/api/participants"),
     ("GET", "/api/participants/stats"),
+    ("GET", "/api/participants/{}"),
+    ("GET", "/api/participants/{}/photo"),
+    ("PATCH", "/api/participants/{}"),
 }
 
 
@@ -430,16 +433,6 @@ CASES: list[Case] = [
         BitrixSettingsOut,
     ),
     # participants
-    ("p_get", "GET", "/api/participants/17", {}, 200, ParticipantCard),
-    ("p_get_unreg", "GET", "/api/participants/18", {}, 200, ParticipantCard),
-    (
-        "p_patch",
-        "PATCH",
-        "/api/participants/17",
-        {"json": {"organization": "ООО"}},
-        200,
-        ParticipantCard,
-    ),
     (
         "p_dups",
         "POST",
@@ -540,11 +533,6 @@ async def test_stub_endpoint(
 
 
 async def test_binary_endpoints(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/participants/17/photo")
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/jpeg"
-    assert r.content.startswith(JPEG_MAGIC)
-
     r = await client.get("/api/admin/conferences/1/templates/1/preview.png?participant_id=17")
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
@@ -617,13 +605,6 @@ async def test_participant_scenarios(client: httpx.AsyncClient) -> None:
 
     r = await client.post("/api/admin/conferences/503/imports/bitrix")
     await _assert_error(r, 502, "bitrix_unavailable")
-
-
-async def test_participant_card_actions_differ(client: httpx.AsyncClient) -> None:
-    done = ParticipantCard.model_validate_json((await client.get("/api/participants/17")).content)
-    fresh = ParticipantCard.model_validate_json((await client.get("/api/participants/18")).content)
-    assert not done.actions.can_register and "can_register" in done.actions.reasons
-    assert fresh.actions.can_register and fresh.status == "not_registered"
 
 
 # ------------------------------------------------- v1.0: новые заглушки
