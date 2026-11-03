@@ -165,6 +165,7 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/admin/events"),
     ("GET", "/api/public/profile/{}"),
     ("GET", "/api/public/profile/{}/photo"),
+    ("GET", "/api/participants"),
 }
 
 
@@ -423,7 +424,6 @@ CASES: list[Case] = [
         BitrixSettingsOut,
     ),
     # participants
-    ("p_list", "GET", "/api/participants", {}, 200, Page[ParticipantShort]),
     ("p_stats", "GET", "/api/participants/stats", {}, 200, ParticipantStats),
     ("p_get", "GET", "/api/participants/17", {}, 200, ParticipantCard),
     ("p_get_unreg", "GET", "/api/participants/18", {}, 200, ParticipantCard),
@@ -641,21 +641,6 @@ async def test_participant_card_actions_differ(client: httpx.AsyncClient) -> Non
     assert fresh.actions.can_register and fresh.status == "not_registered"
 
 
-async def test_participants_list_filters(client: httpx.AsyncClient) -> None:
-    async def ids(query: str) -> list[int]:
-        r = await client.get(f"/api/participants?{query}")
-        page = Page[ParticipantShort].model_validate_json(r.content)
-        assert page.total == len(page.items)
-        return [p.id for p in page.items]
-
-    assert await ids("filter=all") == [17, 18, 19]
-    assert await ids("filter=not_registered") == [18]
-    assert await ids("filter=flagged") == [17, 19]
-    assert await ids("q=петров") == [18]
-    bad = await client.get("/api/participants?filter=nope")
-    await _assert_error(bad, 422, "validation_error")
-
-
 # ------------------------------------------------- v1.0: новые заглушки
 
 
@@ -706,16 +691,3 @@ async def test_bitrix_settings_never_expose_the_webhook(
     assert "entity_type_id" in err.details["fields"]
     bad = await client.put(url, json={"entity": "lead"})
     await _assert_error(bad, 422, "validation_error")
-
-
-async def test_participants_list_sort(client: httpx.AsyncClient) -> None:
-    async def ids(query: str) -> list[int]:
-        r = await client.get(f"/api/participants?{query}")
-        assert r.status_code == 200, r.text
-        return [p["id"] for p in r.json()["items"]]
-
-    assert await ids("") == [17, 18, 19]  # по ФИО: Иванов, Петрова, Сидоров
-    assert await ids("sort=name") == [17, 18, 19]
-    assert await ids("sort=registered_at") == [17, 19, 18]
-    assert await ids("sort=-registered_at") == [19, 17, 18]
-    await _assert_error(await client.get("/api/participants?sort=id"), 422, "validation_error")

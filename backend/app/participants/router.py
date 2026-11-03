@@ -1,13 +1,16 @@
-"""Участники: список, поиск, карточка, правка, добавление. ЗАГЛУШКИ (B1-09..B1-12)."""
+"""Участники: список и поиск (B1-09); карточка, правка, добавление — ЗАГЛУШКИ (B1-10..B1-13)."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import STUB_TAG, Limit, Offset, Page, err
 from app.api.deps import staff
 from app.api.stubs import JPEG_1X1, T0
+from app.core.db import get_session
 from app.core.errors import AppError
+from app.participants import search
 from app.participants.schemas import (
     CheckDuplicatesIn,
     DuplicatesOut,
@@ -27,7 +30,7 @@ from app.participants.schemas import (
     RegistrationInfo,
 )
 
-router = APIRouter(prefix="/participants", tags=["participants", STUB_TAG])
+router = APIRouter(prefix="/participants", tags=["participants"])
 
 # Фиксированные участники заглушек: 17 — зарегистрирован, 18 — нет, 19 — без наклейки.
 SAMPLE_IDS = (17, 18, 19)
@@ -57,9 +60,6 @@ _SHORT = [
 ]
 
 REGISTERED_AT_TEXT = "20.11 09:15, Терминал 2"
-
-# Время регистрации в заглушке для `sort=registered_at`: 17 раньше 19, 18 не регистрировался
-_REGISTERED_AT = {17: T0, 19: T0.replace(minute=40)}
 
 
 def sample_short(participant_id: int) -> ParticipantShort:
@@ -140,48 +140,43 @@ def sample_card(participant_id: int) -> ParticipantCard:
     operation_id="participants_list",
     summary="Список и поиск участников",
     description=(
-        "Разрешение: `participants.view`. Участники активной конференции. Поиск `q` — по ФИО, "
-        "начиная с 2 символов (RG-02). `filter=flagged` — участники с пометками. "
-        "Сортировка `sort`: `name` (по умолчанию, по ФИО), `registered_at` (раньше "
-        "зарегистрированные выше), `-registered_at` (позже выше); незарегистрированные "
-        "всегда в конце. Заглушка отдаёт трёх фиксированных участников (id 17, 18, 19)."
+        "Разрешение: `participants.view`. Участники активной конференции; без активной "
+        "конференции список пуст. Поиск `q` — по ФИО, начиная с 2 символов (RG-02): регистр "
+        "и ё/е не различаются, каждое слово ищется как часть слова, слова в любом порядке "
+        "объединяются по И; более короткий `q` игнорируется. `filter=flagged` — участники "
+        "с пометками. Сортировка `sort`: `name` (по умолчанию, по ФИО), `registered_at` "
+        "(раньше зарегистрированные выше), `-registered_at` (позже выше); "
+        "незарегистрированные всегда в конце."
     ),
     response_model=Page[ParticipantShort],
     dependencies=staff("participants.view"),
     responses=err(401, 403, 422),
 )
 async def participants_list(
+    request: Request,
     q: Annotated[str | None, Query(description="Поиск по ФИО", examples=["иван"])] = None,
     filter: Annotated[ParticipantFilter, Query(description="Фильтр списка")] = "all",
     sort: Annotated[ParticipantSort, Query(description="Порядок списка")] = "name",
     limit: Limit = 50,
     offset: Offset = 0,
+    session: AsyncSession = Depends(get_session),
 ) -> Page[ParticipantShort]:
-    items = list(_SHORT)
-    if q:
-        needle = q.strip().lower().replace("ё", "е")
-        items = [p for p in items if needle in p.full_name.lower().replace("ё", "е")]
-    if filter == "registered":
-        items = [p for p in items if p.status != "not_registered"]
-    elif filter == "not_registered":
-        items = [p for p in items if p.status == "not_registered"]
-    elif filter == "flagged":
-        items = [p for p in items if p.flags]
-    if sort == "name":
-        items.sort(key=lambda p: p.full_name)
-    else:
-        done = sorted(
-            (p for p in items if p.id in _REGISTERED_AT),
-            key=lambda p: (_REGISTERED_AT[p.id], p.id),
-            reverse=sort == "-registered_at",
-        )
-        items = [*done, *(p for p in items if p.id not in _REGISTERED_AT)]
-    return Page[ParticipantShort](items=items[offset : offset + limit], total=len(items))
+    items, total = await search.list_participants(
+        session,
+        q=q,
+        filter=filter,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+        min_chars=request.app.state.settings.search_min_chars,
+    )
+    return Page[ParticipantShort](items=items, total=total)
 
 
 @router.get(
     "/stats",
     operation_id="participants_stats",
+    tags=[STUB_TAG],
     summary="Счётчик «зарегистрировано / всего»",
     description="Разрешение: `participants.view`. Живое обновление — `GET /api/events/stream`.",
     response_model=ParticipantStats,
@@ -195,6 +190,7 @@ async def participants_stats() -> ParticipantStats:
 @router.post(
     "/check-duplicates",
     operation_id="participants_check_duplicates",
+    tags=[STUB_TAG],
     summary="Поиск дубликатов перед добавлением",
     description="Разрешение: `participants.add`. Похожие ФИО среди участников (RG-07).",
     response_model=DuplicatesOut,
@@ -210,6 +206,7 @@ async def participants_check_duplicates(body: CheckDuplicatesIn) -> DuplicatesOu
 @router.post(
     "",
     operation_id="participants_create",
+    tags=[STUB_TAG],
     summary="Добавить участника и зарегистрировать",
     description=(
         "Разрешение: `participants.add` (+ `stickers.print` при `with_sticker`). "
@@ -253,6 +250,7 @@ async def participants_create(body: ParticipantCreateIn) -> ParticipantCreatedOu
 @router.get(
     "/{participant_id}",
     operation_id="participants_get",
+    tags=[STUB_TAG],
     summary="Карточка участника",
     description=(
         "Разрешение: `participants.view`. Поле `actions` бэкенд вычисляет сам: кнопка неактивна, "
@@ -270,6 +268,7 @@ async def participants_get(participant_id: int) -> ParticipantCard:
 @router.get(
     "/{participant_id}/photo",
     operation_id="participants_photo",
+    tags=[STUB_TAG],
     summary="Фото участника",
     description="Разрешение: `participants.view`. JPEG; заглушка отдаёт пиксель 1×1.",
     response_class=Response,
@@ -290,6 +289,7 @@ async def participants_photo(participant_id: int) -> Response:
 @router.patch(
     "/{participant_id}",
     operation_id="participants_update",
+    tags=[STUB_TAG],
     summary="Исправить данные участника",
     description=(
         "Разрешение: `participants.edit`. Передавайте только изменённые поля. "
