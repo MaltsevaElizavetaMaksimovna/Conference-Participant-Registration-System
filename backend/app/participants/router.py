@@ -1,4 +1,4 @@
-"""Участники: список и поиск (B1-09); карточка, правка, добавление — ЗАГЛУШКИ (B1-10..B1-13)."""
+"""Участники: список, поиск, счётчик (B1-09, B1-10); остальное — ЗАГЛУШКИ (B1-06, B1-12, B1-13)."""
 
 from typing import Annotated
 
@@ -176,15 +176,18 @@ async def participants_list(
 @router.get(
     "/stats",
     operation_id="participants_stats",
-    tags=[STUB_TAG],
     summary="Счётчик «зарегистрировано / всего»",
-    description="Разрешение: `participants.view`. Живое обновление — `GET /api/events/stream`.",
+    description=(
+        "Разрешение: `participants.view`. Участники активной конференции (RG-04); `registered` — "
+        "все, кроме `not_registered`, и совпадает с `total` списка при `filter=registered`. "
+        "Без активной конференции — 0 из 0. Живое обновление — `GET /api/events/stream`."
+    ),
     response_model=ParticipantStats,
     dependencies=staff("participants.view"),
     responses=err(401, 403),
 )
-async def participants_stats() -> ParticipantStats:
-    return ParticipantStats(registered=120, total=300)
+async def participants_stats(session: AsyncSession = Depends(get_session)) -> ParticipantStats:
+    return await search.participant_stats(session)
 
 
 @router.post(
