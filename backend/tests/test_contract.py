@@ -17,7 +17,6 @@ from app.participants.schemas import (
     ParticipantCard,
     ParticipantCreatedOut,
     ParticipantShort,
-    ParticipantStats,
 )
 from app.printing.schemas import AgentJob
 from app.realtime.schemas import EVENT_NAMES, ParticipantUpdatedEvent, StatsEvent
@@ -166,6 +165,7 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/public/profile/{}"),
     ("GET", "/api/public/profile/{}/photo"),
     ("GET", "/api/participants"),
+    ("GET", "/api/participants/stats"),
 }
 
 
@@ -424,7 +424,6 @@ CASES: list[Case] = [
         BitrixSettingsOut,
     ),
     # participants
-    ("p_stats", "GET", "/api/participants/stats", {}, 200, ParticipantStats),
     ("p_get", "GET", "/api/participants/17", {}, 200, ParticipantCard),
     ("p_get_unreg", "GET", "/api/participants/18", {}, 200, ParticipantCard),
     (

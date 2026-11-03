@@ -1,4 +1,4 @@
-"""Список и поиск участников активной конференции (B1-09, RG-02).
+"""Список, поиск и счётчик участников активной конференции (B1-09, B1-10, RG-02, RG-04).
 
 Поиск идёт по `search_norm` («фамилия имя отчество», lower, ё -> е): запрос разбивается на
 слова, каждое ищется как часть слова через LIKE, условия объединяются по И.
@@ -13,7 +13,12 @@ from app.core.enums import ParticipantStatus
 from app.core.text import full_name, normalize_search
 from app.models.conference import Conference
 from app.models.participant import Participant
-from app.participants.schemas import ParticipantFilter, ParticipantShort, ParticipantSort
+from app.participants.schemas import (
+    ParticipantFilter,
+    ParticipantShort,
+    ParticipantSort,
+    ParticipantStats,
+)
 from app.participants.service import participant_flags
 
 
@@ -29,10 +34,14 @@ def _escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _is_registered() -> ColumnElement[bool]:
+    return Participant.status != ParticipantStatus.NOT_REGISTERED
+
+
 def _filter_condition(filter: ParticipantFilter) -> ColumnElement[bool] | None:
     match filter:
         case "registered":
-            return Participant.status != ParticipantStatus.NOT_REGISTERED
+            return _is_registered()
         case "not_registered":
             return Participant.status == ParticipantStatus.NOT_REGISTERED
         case "flagged":
@@ -98,3 +107,19 @@ async def list_participants(
         for p in rows
     ]
     return items, total or 0
+
+
+async def participant_stats(session: AsyncSession) -> ParticipantStats:
+    """Счётчик «Зарегистрировано X из Y» активной конференции (RG-04). Нет активной — 0 из 0.
+
+    `registered` совпадает с `total` списка при `filter=registered`.
+    """
+    row = (
+        await session.execute(
+            select(func.count(), func.count().filter(_is_registered()))
+            .select_from(Participant)
+            .join(Conference, Conference.id == Participant.conference_id)
+            .where(Conference.is_active)
+        )
+    ).one()
+    return ParticipantStats(total=row[0], registered=row[1])
