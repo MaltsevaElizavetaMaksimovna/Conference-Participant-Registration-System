@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     # Терминалы и принтеры (B2-01)
     device_last_seen_throttle_s: int = 10  # last_seen_at терминала пишем не чаще раза в N с
     printer_online_timeout_s: int = 30  # принтер «на связи», если heartbeat не старше N с
+    # Шаблоны наклеек (B2-07): элемент ближе N мм к краю — предупреждение (принтер обрезает край)
+    template_safe_margin_mm: float = 3
 
     # --- Сканирование QR (B2-02) ---
     # Регулярка для извлечения ID участника из ссылки приглашения (первая группа = ID).

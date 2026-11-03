@@ -6,9 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.conferences.service import conference_not_found
 from app.imports.columns import FIELD_BY_KEY
 from app.models.conference import Conference, ExtraFieldDef
-from app.templates.schemas import TemplateFieldOut
-
-STANDARD_KEYS = ("last_name", "first_name", "middle_name", "position", "organization")
+from app.templates.schemas import STANDARD_KEYS, TemplateFieldOut
 
 # Не поля участника, а особые значения шаблона. `qr` и `text` совпадают с `elements[].type`.
 SPECIAL_FIELDS: tuple[tuple[str, str], ...] = (
