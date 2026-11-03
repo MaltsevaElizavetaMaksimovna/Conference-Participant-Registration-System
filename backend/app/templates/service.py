@@ -41,6 +41,18 @@ def _db_values(body: TemplateIn) -> dict[str, Any]:
     }
 
 
+def template_spec(tpl: LabelTemplate) -> TemplateIn:
+    """Шаблон из БД в виде, нужном рендеру наклейки (B2-08)."""
+    return TemplateIn(
+        name=tpl.name,
+        kind=tpl.kind,  # type: ignore[arg-type]  # CHECK в БД гарантирует значение
+        width_mm=float(tpl.width_mm),
+        height_mm=float(tpl.height_mm),
+        gap_mm=float(tpl.gap_mm),
+        elements=[TemplateElement.model_validate(el) for el in tpl.elements],
+    )
+
+
 def template_out(tpl: LabelTemplate, margin_mm: float) -> TemplateOut:
     elements = [TemplateElement.model_validate(el) for el in tpl.elements]
     width, height = float(tpl.width_mm), float(tpl.height_mm)
