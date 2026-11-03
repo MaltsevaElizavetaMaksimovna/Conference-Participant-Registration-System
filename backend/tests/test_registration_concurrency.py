@@ -33,7 +33,8 @@ from app.models.device import Printer, Terminal
 from app.models.participant import EventLog, Participant
 from app.models.printing import PrintJob
 from app.models.staff import Role, StaffUser
-from app.registration.service import RegistrationResult, register
+from app.registration.result import RegistrationResult
+from app.registration.service import register
 from app.terminals.tokens import TERMINAL_PREFIX, generate_token, hash_token
 from tests.registration_helpers import confirm, scan_and_get_id
 
