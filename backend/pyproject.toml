@@ -22,6 +22,7 @@ dependencies = [
     "tzdata>=2024.1",  # часовые пояса (RS_TIMEZONE) на Windows
     "Pillow>=10.0",  # рендер наклейки
     "segno>=1.6",  # QR-код на наклейке
+    "httpx>=0.27",  # скачивание фото по ссылке при импорте (B1-06)
 ]
 
 [project.optional-dependencies]

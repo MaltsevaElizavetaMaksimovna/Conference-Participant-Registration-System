@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     print_poll_interval_s: float = 0.5  # как часто long-poll агента проверяет очередь
     print_sweep_interval_s: float = 5  # как часто сервер помечает просроченные задания
     sse_keepalive_s: int = 15
+    # Фото по ссылке при импорте (B1-06): лимиты скачивания и обработки
+    photo_max_mb: int = 5
+    photo_timeout_s: int = 10
+    photo_max_redirects: int = 3
+    photo_workers: int = 4  # одновременных скачиваний на процесс
+    photo_max_pixels: int = 40_000_000  # защита от «картинки-бомбы»
+    photo_max_side_px: int = 1200
+    photo_jpeg_quality: int = 85
     login_rate_limit_per_min: int = 10
     # Ограничение перебора пароля: N неудач на (ip, логин) за окно, затем 429
     login_max_failures: int = 10
