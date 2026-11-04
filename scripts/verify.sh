@@ -18,5 +18,10 @@ step "ruff format";       ruff format --check -q .
 step "mypy";              mypy app | tail -1
 step "pytest";            pytest -q -p no:cacheprovider 2>&1 | tail -3
 
+cd "$ROOT/agent"
+step "agent ruff";        ruff check . -q
+step "agent ruff format"; ruff format --check -q .
+step "agent mypy";        mypy regsys_agent | tail -1
+step "agent pytest";      python -m pytest -q -p no:cacheprovider 2>&1 | tail -3
 
 echo "== OK"

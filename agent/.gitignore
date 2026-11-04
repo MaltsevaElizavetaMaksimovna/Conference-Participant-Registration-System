@@ -1,0 +1,8 @@
+.venv/
+dist/
+build/
+*.spec
+agent.ini
+journal.jsonl
+*.log
+__pycache__/
