@@ -1,21 +1,16 @@
-"""Эндпоинты терминала самообслуживания и админка терминалов.
+"""Эндпоинты терминала самообслуживания и админка терминалов (B2-01, B2-03..06, B2-11)."""
 
-Реальные: `ping`, `scan`, `confirm`, `report-error` и админка (B2-01, B2-03..06).
-Заглушка осталась только у `print-jobs/{id}` (B2-11), но уже под настоящей авторизацией.
-"""
-
-from enum import Enum
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.common import STUB_TAG, Limit, Offset, Page, err
+from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff, terminal
 from app.core.config import Settings
 from app.core.db import get_session
 from app.core.permissions import Permission
-from app.terminals import confirm_flow, report_flow, scan_flow, service
+from app.terminals import confirm_flow, print_status, report_flow, scan_flow, service
 from app.terminals.deps import CurrentTerminal, get_current_terminal
 from app.terminals.schemas import (
     ConfirmIn,
@@ -38,7 +33,6 @@ terminal_router = APIRouter(prefix="/terminal", tags=["terminal"])
 admin_router = APIRouter(prefix="/admin/terminals", tags=["admin: terminals"])
 
 Session = Annotated[AsyncSession, Depends(get_session)]
-_STUB: list[str | Enum] = [STUB_TAG]
 
 _DISABLED = (423, "`terminal_disabled`: «Терминал не работает, воспользуйтесь соседним»")
 _INVALID_TOKEN = (401, "`invalid_device_token`: токен терминала отсутствует или неверный")
@@ -192,18 +186,19 @@ async def terminal_report_error(
     operation_id="terminal_print_job",
     summary="Статус печати для экрана терминала",
     description=(
-        "`Authorization: Terminal <token>`. `message` показывать на экране как есть. "
-        "Заглушка всегда отвечает `done`."
+        "`Authorization: Terminal <token>`. Только задания этого терминала. "
+        "`message` показывать на экране как есть: при `error` — текст TR-08."
     ),
     response_model=TerminalPrintJobOut,
     dependencies=terminal(),
     responses=err(_INVALID_TOKEN, 404, _DISABLED),
-    tags=_STUB,
 )
-async def terminal_print_job(print_job_id: int) -> TerminalPrintJobOut:
-    return TerminalPrintJobOut(
-        status="done", message="Заберите наклейку из принтера и приклейте её"
-    )
+async def terminal_print_job(
+    print_job_id: int,
+    session: Session,
+    current: CurrentTerminal = Depends(get_current_terminal),
+) -> TerminalPrintJobOut:
+    return await print_status.get_terminal_print_job(session, current.terminal_id, print_job_id)
 
 
 _ADMIN = Permission.DEVICES_MANAGE

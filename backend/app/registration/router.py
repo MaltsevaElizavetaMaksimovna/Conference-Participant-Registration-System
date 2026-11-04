@@ -1,16 +1,25 @@
-"""Действия на стойке: регистрация, повторная печать, чужой код. ЗАГЛУШКИ (B2-04, B2-10)."""
+"""Действия на стойке: регистрация, повторная печать, чужой код (заглушки B2-04, B2-10),
+статус печати (B2-11, TR-08)."""
 
-from fastapi import APIRouter
+from enum import Enum
+from typing import cast
 
-from app.api.common import STUB_TAG, PrintJobRefOut, err
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.common import STUB_TAG, PrintJobRefOut, PrintJobStatus, err
 from app.api.deps import staff
 from app.api.stubs import T0
+from app.core.db import get_session
 from app.core.errors import AppError
+from app.models.printing import PrintJob
 from app.participants.router import REGISTERED_AT_TEXT, sample_card
 from app.participants.schemas import RegistrationInfo
+from app.printing.queue import print_job_not_found
 from app.registration.schemas import PrintJobOut, RegisterIn, RegisterOut
 
-router = APIRouter(tags=["desk", STUB_TAG])
+router = APIRouter(tags=["desk"])
+_STUB: list[str | Enum] = [STUB_TAG]
 
 
 @router.post(
@@ -24,6 +33,7 @@ router = APIRouter(tags=["desk", STUB_TAG])
         "Заглушка: участник 17 уже зарегистрирован, 18 и 19 регистрируются, остальные — 404."
     ),
     response_model=RegisterOut,
+    tags=_STUB,
     dependencies=staff("registration.desk", write=True),
     responses=err(
         401,
@@ -70,6 +80,7 @@ async def desk_register(participant_id: int, body: RegisterIn | None = None) -> 
         "зарегистрирован."
     ),
     response_model=PrintJobRefOut,
+    tags=_STUB,
     dependencies=staff("stickers.print", write=True),
     responses=err(401, 403, 404, (409, "`not_registered`: участник не зарегистрирован")),
 )
@@ -90,6 +101,7 @@ async def desk_reprint(participant_id: int) -> PrintJobRefOut:
         "спросить подтверждение у регистратора.**"
     ),
     response_model=PrintJobRefOut,
+    tags=_STUB,
     dependencies=staff("registration.foreign_code", write=True),
     responses=err(401, 403, 404),
 )
@@ -102,10 +114,18 @@ async def desk_foreign_code(participant_id: int) -> PrintJobRefOut:
     "/print-jobs/{print_job_id}",
     operation_id="print_jobs_get",
     summary="Статус задания печати",
-    description="Любой вошедший сотрудник. Заглушка всегда отвечает `done`.",
+    description=(
+        "Любой вошедший сотрудник. Статус задания: `pending → sent → done | error`; "
+        "`error` — причина (`timeout`, `not_picked_up`, `template_not_set`, текст агента…)."
+    ),
     response_model=PrintJobOut,
     dependencies=staff(),
-    responses=err(401, 404),
+    responses=err(401, (404, "`print_job_not_found`: задания нет")),
 )
-async def print_jobs_get(print_job_id: int) -> PrintJobOut:
-    return PrintJobOut(id=print_job_id, status="done", error=None)
+async def print_jobs_get(
+    print_job_id: int, session: AsyncSession = Depends(get_session)
+) -> PrintJobOut:
+    job = await session.get(PrintJob, print_job_id)
+    if job is None:
+        raise print_job_not_found()
+    return PrintJobOut(id=job.id, status=cast(PrintJobStatus, job.status), error=job.error)

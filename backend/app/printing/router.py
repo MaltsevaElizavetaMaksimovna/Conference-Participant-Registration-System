@@ -5,13 +5,12 @@
 """
 
 import asyncio
-from enum import Enum
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.common import STUB_TAG, Limit, Offset, Page, PrinterOut, err
+from app.api.common import Limit, Offset, Page, PrinterOut, err
 from app.api.deps import agent, staff
 from app.core.config import Settings
 from app.core.db import get_session
@@ -34,7 +33,6 @@ admin_router = APIRouter(prefix="/admin/printers", tags=["admin: printers"])
 agent_router = APIRouter(prefix="/agent", tags=["agent"])
 
 Session = Annotated[AsyncSession, Depends(get_session)]
-_STUB: list[str | Enum] = [STUB_TAG]
 
 _INVALID_TOKEN = (401, "`invalid_device_token`: токен агента отсутствует или неверный")
 _ADMIN = Permission.DEVICES_MANAGE

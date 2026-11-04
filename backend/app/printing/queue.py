@@ -174,6 +174,11 @@ async def claim_next(
         except AppError as e:
             await session.rollback()
             await _fail(session, job_id, e.code)
+            # rollback истёк объекты сессии: принтер для следующего задания читаем заново
+            fresh = await session.get(Printer, printer_id, populate_existing=True)
+            if fresh is None:
+                return None
+            printer = fresh
             continue
         await session.execute(
             update(PrintJob)
