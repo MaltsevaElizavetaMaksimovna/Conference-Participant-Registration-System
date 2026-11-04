@@ -19,6 +19,7 @@ from app.eventlog.router import router as eventlog_router
 from app.imports.router import router as imports_router
 from app.participants.router import router as participants_router
 from app.printing.router import router as printing_router
+from app.printing.sweeper import PrintSweeper
 from app.realtime.hub import EventHub, psycopg_conninfo
 from app.realtime.router import router as realtime_router
 from app.registration.router import router as registration_router
@@ -135,7 +136,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.print_sweeper.start()
         yield
+        await app.state.print_sweeper.stop()
         await app.state.event_hub.stop()
         await engine.dispose()
 
@@ -150,6 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.sessionmaker = make_sessionmaker(engine)
     app.state.event_hub = EventHub(psycopg_conninfo(settings.database_url), app.state.sessionmaker)
+    app.state.print_sweeper = PrintSweeper(app.state.sessionmaker, settings)
 
     app.add_middleware(
         CORSMiddleware,

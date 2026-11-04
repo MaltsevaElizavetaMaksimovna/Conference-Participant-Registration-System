@@ -50,7 +50,12 @@ class AgentJobCopy(BaseModel):
 
 class AgentJob(BaseModel):
     job_id: int = Field(examples=[501])
-    copies: list[AgentJobCopy]
+    copies: list[AgentJobCopy] = Field(description="Наклейки по порядку печати, одним заданием")
+    # Калибровка принтера из админки: агент применяет её к TSPL (SHIFT/DENSITY/SPEED)
+    offset_x_mm: float = Field(default=0, description="Сдвиг по горизонтали, мм", examples=[-1.0])
+    offset_y_mm: float = Field(default=0, description="Сдвиг по вертикали, мм", examples=[0.0])
+    density: int = Field(default=10, description="Плотность печати 0–15", examples=[10])
+    speed: int = Field(default=3, description="Скорость печати 1–6", examples=[3])
 
 
 class AgentResultIn(BaseModel):

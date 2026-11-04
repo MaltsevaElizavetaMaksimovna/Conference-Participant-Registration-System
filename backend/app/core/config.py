@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     terminal_fail_threshold: int = 3  # «Нет связи с сервером» после N неудач подряд
     long_poll_timeout_s: int = 25  # long-poll агента печати
     print_confirm_timeout_s: int = 30  # агент не подтвердил задание -> error
+    # Агент не забрал задание за N с (принтер или агент выключен) -> error; позже не печатаем
+    print_pending_timeout_s: int = 30
+    print_poll_interval_s: float = 0.5  # как часто long-poll агента проверяет очередь
+    print_sweep_interval_s: float = 5  # как часто сервер помечает просроченные задания
     sse_keepalive_s: int = 15
     login_rate_limit_per_min: int = 10
     # Ограничение перебора пароля: N неудач на (ip, логин) за окно, затем 429

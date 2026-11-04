@@ -1,25 +1,26 @@
 """Принтеры и агент печати.
 
-Реальные: админка принтеров, `GET /api/printers`, heartbeat агента (B2-01). Задания
-агента (`jobs/next`, `jobs/{id}/result`) пока заглушки (B2-11), но уже под настоящей
-авторизацией агента.
+Админка принтеров, `GET /api/printers`, heartbeat агента (B2-01); очередь заданий агента
+`jobs/next` (long-poll) и `jobs/{id}/result` (B2-11, логика — `queue.py`).
 """
 
+import asyncio
 from enum import Enum
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import STUB_TAG, Limit, Offset, Page, PrinterOut, err
 from app.api.deps import agent, staff
-from app.api.stubs import PNG_1X1_B64
+from app.core.config import Settings
 from app.core.db import get_session
 from app.core.permissions import Permission
-from app.printing import service
+from app.models.device import Printer
+from app.printing import queue, service
+from app.printing.job_render import render_job
 from app.printing.schemas import (
     AgentJob,
-    AgentJobCopy,
     AgentResultIn,
     HeartbeatIn,
     PrinterAdminOut,
@@ -130,9 +131,13 @@ async def admin_printers_token(printer_id: int, session: Session) -> PrinterToke
     operation_id="agent_jobs_next",
     summary="Получить следующее задание печати (long-poll)",
     description=(
-        "`Authorization: Agent <token>`. Держит запрос до `wait` секунд; если заданий нет, "
-        "`204 No Content`, и агент делает запрос снова. **Заглушка** сразу отвечает заданием "
-        "из двух наклеек, а при `wait=0` — `204`."
+        "`Authorization: Agent <token>`. Держит запрос до `wait` секунд и отдаёт самое старое "
+        "задание своего принтера; если заданий нет — `204 No Content`, и агент сразу "
+        "спрашивает снова. Наклейки рисуются в момент выдачи по текущему шаблону; в ответе "
+        "калибровка принтера (`offset_x_mm`, `offset_y_mm`, `density`, `speed`). Задание "
+        "выдаётся один раз: на него нужно ответить `POST …/result` за "
+        "`RS_PRINT_CONFIRM_TIMEOUT_S` (30 с), иначе оно станет `error`. Задания старше "
+        "`RS_PRINT_PENDING_TIMEOUT_S` (30 с) не выдаются: они уже помечены ошибкой."
     ),
     response_model=AgentJob,
     responses={
@@ -140,32 +145,63 @@ async def admin_printers_token(printer_id: int, session: Session) -> PrinterToke
         **err(_INVALID_TOKEN),
     },
     dependencies=agent(),
-    tags=_STUB,
 )
 async def agent_jobs_next(
+    request: Request,
+    session: Session,
+    current: CurrentAgent = Depends(get_current_agent),
     wait: Annotated[
         int, Query(ge=0, le=60, description="Сколько секунд ждать задание (long-poll)")
     ] = 25,
 ) -> AgentJob | Response:
-    if wait == 0:
-        return Response(status_code=204)
-    copy = AgentJobCopy(png_base64=PNG_1X1_B64, width_mm=58.0, height_mm=40.0, gap_mm=2.0)
-    return AgentJob(job_id=501, copies=[copy, copy])
+    settings: Settings = request.app.state.settings
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + wait
+    await queue.expire_stale(session, settings, current.printer_id)
+    while True:
+        # populate_existing: после rollback внутри claim_next объект принтера истёк
+        printer = await session.get(Printer, current.printer_id, populate_existing=True)
+        if printer is None:  # принтер удалили, пока агент ждал
+            return Response(status_code=204)
+        job = await queue.claim_next(session, settings, printer, render_job)
+        if job is not None:
+            return job
+        remaining = deadline - loop.time()
+        if remaining <= 0 or await request.is_disconnected():
+            return Response(status_code=204)
+        await asyncio.sleep(min(settings.print_poll_interval_s, remaining))
 
 
 @agent_router.post(
     "/jobs/{job_id}/result",
     operation_id="agent_job_result",
     summary="Сообщить результат печати",
-    description="`Authorization: Agent <token>`. Задание получает статус `done` или `error`.",
+    description=(
+        "`Authorization: Agent <token>`. `ok=true` — задание `done` (счётчик печатей "
+        "участника +1, пометка «Наклейка не напечатана» снимается); `ok=false` — `error` с "
+        "причиной `error` (пометка ставится, TR-08). Повтор того же ответа ничего не меняет "
+        "(`204`). Поздний `ok=true` после просрочки засчитывается. `404 print_job_not_found` — "
+        "задания нет или оно другого принтера; `409 print_job_not_sent` — задание ещё не "
+        "выдавалось агенту."
+    ),
     status_code=204,
     response_class=Response,
     dependencies=agent(),
-    responses=err(_INVALID_TOKEN, 404, 422),
-    tags=_STUB,
+    responses=err(
+        _INVALID_TOKEN,
+        (404, "`print_job_not_found`: задания нет или оно другого принтера"),
+        (409, "`print_job_not_sent`: задание ещё не выдавалось агенту"),
+        422,
+    ),
 )
-async def agent_job_result(job_id: int, body: AgentResultIn) -> None:
-    return None
+async def agent_job_result(
+    job_id: int,
+    body: AgentResultIn,
+    session: Session,
+    current: CurrentAgent = Depends(get_current_agent),
+) -> Response:
+    await queue.finish_job(session, current.printer_id, job_id, body.ok, body.error)
+    return Response(status_code=204)
 
 
 @agent_router.post(
