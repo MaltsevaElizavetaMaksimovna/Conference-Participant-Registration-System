@@ -11,7 +11,8 @@
 
 Статус, время и место первой регистрации не меняются: регистрация остаётся одной.
 Принтер в панели не выбран — `409 printer_not_selected`, и ничего не меняется: иначе код
-был бы отозван, а новой наклейки не было бы.
+был бы отозван, а новой наклейки не было бы. В конференции «без бейджа» QR не печатается,
+регистрироваться по нему нельзя — `409 no_badge`.
 """
 
 from sqlalchemy import func, select, update
@@ -38,16 +39,18 @@ def not_registered() -> AppError:
     return AppError("participant_not_registered", "Участник ещё не зарегистрирован", 409)
 
 
+def no_badge() -> AppError:
+    return AppError("no_badge", "В конференции без бейджа нет QR-кодов на наклейках", 409)
+
+
 def printer_not_selected() -> AppError:
     return AppError(
         "printer_not_selected", "Выберите принтер в панели, чтобы напечатать наклейку", 409
     )
 
 
-async def register_foreign_code(
-    session: AsyncSession, participant_id: int, user_id: int
-) -> int | None:
-    """Отметить регистрацию по чужому коду. Возвращает id задания печати (None — без бейджа).
+async def register_foreign_code(session: AsyncSession, participant_id: int, user_id: int) -> int:
+    """Отметить регистрацию по чужому коду. Возвращает id задания печати новой наклейки.
 
     Транзакцию завершает сама (commit или rollback).
     """
@@ -60,19 +63,19 @@ async def register_foreign_code(
     return job_id
 
 
-async def _foreign_code(session: AsyncSession, participant_id: int, user_id: int) -> int | None:
+async def _foreign_code(session: AsyncSession, participant_id: int, user_id: int) -> int:
     # Блокировка строки: два одновременных нажатия выполняются по очереди
     participant, badge_type = await find_active(session, participant_id, for_update=True)
     if participant.status == ParticipantStatus.NOT_REGISTERED:
         raise not_registered()
 
-    printer_id: int | None = None
-    if badge_type != BadgeType.NONE:
-        printer_id = await session.scalar(
-            select(StaffUser.panel_printer_id).where(StaffUser.id == user_id)
-        )
-        if printer_id is None:
-            raise printer_not_selected()
+    if badge_type == BadgeType.NONE:
+        raise no_badge()
+    printer_id = await session.scalar(
+        select(StaffUser.panel_printer_id).where(StaffUser.id == user_id)
+    )
+    if printer_id is None:
+        raise printer_not_selected()
 
     await session.execute(
         update(BadgeToken)
@@ -101,21 +104,18 @@ async def _foreign_code(session: AsyncSession, participant_id: int, user_id: int
     )
     await session.flush()
 
-    job_id: int | None = None
-    if printer_id is not None:
-        job = PrintJob(
-            conference_id=participant.conference_id,
-            participant_id=participant.id,
-            badge_token_id=token.id,
-            printer_id=printer_id,
-            kind=PrintJobKind.FOREIGN,
-            sides=2 if badge_type == BadgeType.DOUBLE else 1,
-            status=PrintJobStatus.PENDING,
-            created_by_user_id=user_id,
-        )
-        session.add(job)
-        await session.flush()
-        job_id = job.id
+    job = PrintJob(
+        conference_id=participant.conference_id,
+        participant_id=participant.id,
+        badge_token_id=token.id,
+        printer_id=printer_id,
+        kind=PrintJobKind.FOREIGN,
+        sides=2 if badge_type == BadgeType.DOUBLE else 1,
+        status=PrintJobStatus.PENDING,
+        created_by_user_id=user_id,
+    )
+    session.add(job)
+    await session.flush()
 
     await notify_participant_updated(session, participant.id, participant.conference_id)
-    return job_id
+    return job.id
