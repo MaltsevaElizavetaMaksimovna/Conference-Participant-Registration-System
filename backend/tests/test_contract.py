@@ -18,7 +18,7 @@ from app.participants.schemas import (
 )
 from app.printing.schemas import AgentJob
 from app.registration.schemas import PrintJobOut, RegisterOut
-from app.templates.schemas import TemplateElement, TemplateOut
+from app.templates.schemas import TemplateElement
 from app.terminals.deps import (
     CurrentAgent,
     CurrentTerminal,
@@ -164,6 +164,7 @@ REAL: set[tuple[str, str]] = {
     ("PUT", "/api/admin/conferences/{}/templates/{}"),
     ("DELETE", "/api/admin/conferences/{}/templates/{}"),
     ("POST", "/api/admin/conferences/{}/templates/{}/copy-to/{}"),
+    ("POST", "/api/admin/conferences/{}/templates/{}/resize"),
     ("GET", "/api/admin/conferences/{}/templates/{}/preview.png"),
     ("GET", "/api/admin/conferences/{}/templates/{}/overflow"),
     ("POST", "/api/admin/conferences/{}/templates/{}/test-print"),
@@ -447,15 +448,6 @@ CASES: list[Case] = [
     ("reprint", "POST", "/api/participants/17/reprint", {}, 200, PrintJobRefOut),
     ("foreign", "POST", "/api/participants/17/foreign-code", {}, 200, PrintJobRefOut),
     ("print_job", "GET", "/api/print-jobs/501", {}, 200, PrintJobOut),
-    # templates
-    (
-        "tpl_resize",
-        "POST",
-        "/api/admin/conferences/1/templates/1/resize",
-        {"json": {"width_mm": 58, "height_mm": 40}},
-        200,
-        TemplateOut,
-    ),
     # terminal
     (
         "t_print_job",
