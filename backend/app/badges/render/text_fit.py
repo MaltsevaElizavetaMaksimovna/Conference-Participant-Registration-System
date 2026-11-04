@@ -86,6 +86,31 @@ def _fits(lines: list[str] | None, lh: int, box_h: int, max_lines: int) -> bool:
     return lines is not None and len(lines) <= max_lines and len(lines) * lh <= box_h
 
 
+def _fits_at(
+    toks: list[Token], pt: float, box_w: int, box_h: int, max_lines: int, bold: bool, dpi: int
+) -> FittedText | None:
+    f = font(pt, bold=bold, dpi=dpi)
+    lh = _line_height(f)
+    lines = wrap(toks, f, box_w, char_break=False)
+    if lines is not None and _fits(lines, lh, box_h, max_lines):
+        return FittedText(lines, f, pt, lh, overflow=False)
+    return None
+
+
+def overflows(
+    text: str,
+    box_w: int,
+    box_h: int,
+    *,
+    min_font_size: float,
+    max_lines: int,
+    bold: bool,
+    dpi: int,
+) -> bool:
+    """То же, что `fit_text(...).overflow`, но одной раскладкой: для проверки всех участников."""
+    return _fits_at(tokens(text), min_font_size, box_w, box_h, max_lines, bold, dpi) is None
+
+
 def fit_text(
     text: str,
     box_w: int,
@@ -99,14 +124,15 @@ def fit_text(
 ) -> FittedText:
     """Наибольший кегль от `font_size` до `min_font_size`, при котором текст влезает в рамку."""
     toks = tokens(text)
-    pt = font_size
-    while pt >= min_font_size - 1e-6:
-        f = font(pt, bold=bold, dpi=dpi)
-        lh = _line_height(f)
-        lines = wrap(toks, f, box_w, char_break=False)
-        if lines is not None and _fits(lines, lh, box_h, max_lines):
-            return FittedText(lines, f, pt, lh, overflow=False)
-        pt -= PT_STEP
+    # Переполнение — это «не влезло минимальным кеглем»; так же считает `overflows()`
+    at_min = _fits_at(toks, min_font_size, box_w, box_h, max_lines, bold, dpi)
+    if at_min is not None:
+        pt = font_size
+        while pt > min_font_size + 1e-6:
+            if fitted := _fits_at(toks, pt, box_w, box_h, max_lines, bold, dpi):
+                return fitted
+            pt -= PT_STEP
+        return at_min
 
     f = font(min_font_size, bold=bold, dpi=dpi)
     lh = _line_height(f)

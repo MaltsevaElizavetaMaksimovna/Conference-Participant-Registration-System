@@ -20,7 +20,7 @@ from app.participants.schemas import (
 )
 from app.printing.schemas import AgentJob
 from app.registration.schemas import PrintJobOut, RegisterOut
-from app.templates.schemas import OverflowOut, TemplateElement, TemplateOut
+from app.templates.schemas import TemplateElement, TemplateOut
 from app.terminals.deps import (
     CurrentAgent,
     CurrentTerminal,
@@ -166,6 +166,9 @@ REAL: set[tuple[str, str]] = {
     ("PUT", "/api/admin/conferences/{}/templates/{}"),
     ("DELETE", "/api/admin/conferences/{}/templates/{}"),
     ("POST", "/api/admin/conferences/{}/templates/{}/copy-to/{}"),
+    ("GET", "/api/admin/conferences/{}/templates/{}/preview.png"),
+    ("GET", "/api/admin/conferences/{}/templates/{}/overflow"),
+    ("POST", "/api/admin/conferences/{}/templates/{}/test-print"),
     ("GET", "/api/admin/events"),
     ("GET", "/api/public/profile/{}"),
     ("GET", "/api/public/profile/{}/photo"),
@@ -470,22 +473,6 @@ CASES: list[Case] = [
         200,
         TemplateOut,
     ),
-    (
-        "tpl_overflow",
-        "GET",
-        "/api/admin/conferences/1/templates/1/overflow",
-        {},
-        200,
-        OverflowOut,
-    ),
-    (
-        "tpl_test_print",
-        "POST",
-        "/api/admin/conferences/1/templates/1/test-print",
-        {"json": {"participant_id": 17, "printer_id": 1}},
-        200,
-        PrintJobRefOut,
-    ),
     # terminal
     (
         "t_print_job",
@@ -530,13 +517,6 @@ async def test_stub_endpoint(
 
 
 # ------------------------------------------------------------- бинарные файлы
-
-
-async def test_binary_endpoints(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/admin/conferences/1/templates/1/preview.png?participant_id=17")
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/png"
-    assert r.content.startswith(PNG_MAGIC)
 
 
 async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:

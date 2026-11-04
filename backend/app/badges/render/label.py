@@ -12,7 +12,7 @@ import segno
 from PIL import Image, ImageDraw
 
 from app.badges.render.data import LabelData
-from app.badges.render.text_fit import fit_text
+from app.badges.render.text_fit import FittedText, fit_text
 from app.templates.schemas import TemplateElement, TemplateIn
 
 DPI = 203
@@ -48,18 +48,23 @@ def _element_text(el: TemplateElement, data: LabelData) -> str:
     return data.value(el.field or "")
 
 
-def _draw_text(box: Image.Image, el: TemplateElement, text: str, dpi: int) -> bool:
-    """Текст в рамке; True — не поместился (overflow)."""
-    fitted = fit_text(
+def fit_element(el: TemplateElement, text: str, w: int, h: int, dpi: int = DPI) -> FittedText:
+    """Раскладка текста элемента в рамке `w`×`h` точек по его кеглям и `max_lines`."""
+    return fit_text(
         text,
-        box.width,
-        box.height,
+        w,
+        h,
         font_size=el.font_size,
         min_font_size=el.min_font_size,
         max_lines=el.max_lines,
         bold=el.bold,
         dpi=dpi,
     )
+
+
+def _draw_text(box: Image.Image, el: TemplateElement, text: str, dpi: int) -> bool:
+    """Текст в рамке; True — не поместился (overflow)."""
+    fitted = fit_element(el, text, box.width, box.height, dpi)
     d = ImageDraw.Draw(box)
     y = 0
     for line in fitted.lines:
@@ -93,14 +98,20 @@ def _draw_qr(box: Image.Image, url: str) -> None:
                 d.rectangle([px, py, px + module - 1, py + module - 1], fill=BLACK)
 
 
+def element_box(spec: TemplateIn, el: TemplateElement, dpi: int = DPI) -> tuple[int, int, int, int]:
+    """Рамка элемента в точках (x, y, ширина, высота), обрезанная по краю наклейки."""
+    x, y = dots(el.x_mm, dpi), dots(el.y_mm, dpi)
+    w = min(dots(el.w_mm, dpi), dots(spec.width_mm, dpi) - x)
+    h = min(dots(el.h_mm, dpi), dots(spec.height_mm, dpi) - y)
+    return x, y, w, h
+
+
 def render_label(spec: TemplateIn, data: LabelData, dpi: int = DPI) -> RenderResult:
     """Нарисовать наклейку. Пустые поля не печатаются; QR без ссылки не рисуется."""
     canvas = Image.new("L", (dots(spec.width_mm, dpi), dots(spec.height_mm, dpi)), WHITE)
     overflow: list[Overflow] = []
     for i, el in enumerate(spec.elements):
-        x, y = dots(el.x_mm, dpi), dots(el.y_mm, dpi)
-        w = min(dots(el.w_mm, dpi), canvas.width - x)
-        h = min(dots(el.h_mm, dpi), canvas.height - y)
+        x, y, w, h = element_box(spec, el, dpi)
         if w <= 0 or h <= 0:
             continue
         box = Image.new("L", (w, h), WHITE)

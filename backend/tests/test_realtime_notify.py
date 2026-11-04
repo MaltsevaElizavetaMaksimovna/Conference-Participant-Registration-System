@@ -214,3 +214,25 @@ async def test_test_print_job_sends_nothing(world: World, listener: Listener) ->
 async def test_unknown_print_job(world: World) -> None:
     async with world.sessionmaker() as s:
         assert not await set_job_status(s, 0, PrintJobStatus.DONE)
+
+
+async def test_test_print_job_with_participant_sends_nothing(
+    world: World, listener: Listener
+) -> None:
+    """Пробная печать с участником не отправляет событий панели (PR-02, B2-04a)."""
+    pid = await world.new_participant()
+    async with world.sessionmaker() as s:
+        job = PrintJob(
+            kind="test",
+            participant_id=pid,
+            template_id=None,
+            sides=1,
+            printer_id=world.printer_ids[0],
+            conference_id=world.conference_id,
+        )
+        s.add(job)
+        await s.commit()
+        assert await set_job_status(s, job.id, PrintJobStatus.DONE)
+        await s.commit()
+
+    assert await listener.events() == []

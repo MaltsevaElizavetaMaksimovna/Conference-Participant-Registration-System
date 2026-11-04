@@ -7,13 +7,15 @@ from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
 from app.core.config import Settings
 from app.core.db import get_session
-from app.templates import fields, service, stub_router
+from app.templates import fields, preview, preview_router, service, stub_router
 from app.templates.schemas import TemplateFieldOut, TemplateIn, TemplateOut, TemplateSaveOut
 
 # Заглушки (тег `stub`) — в stub_router.py; `router` оставлен здесь для app.main
 router = stub_router.router
 # Реальные эндпоинты модуля (без тега `stub`)
 fields_router = APIRouter(prefix="/admin/conferences", tags=["admin: templates"])
+# Предпросмотр, переполнение и пробная печать (B2-09)
+fields_router.include_router(preview_router.router)
 
 _PERM = "conferences.manage"
 _BASE = "/{conference_id}/templates"
@@ -123,7 +125,7 @@ async def templates_get(
         "Разрешение: `conferences.manage`. Полная замена; `version` растёт, изменения "
         "применяются со следующей печати. В ответе поля шаблона и `overflow` — участники, "
         "которые не помещаются даже минимальным кеглем (PR-03); тот же список отдаёт "
-        "`GET .../overflow`. Пока расчёт не готов (B2-09), `overflow` пустой. " + _KINDS
+        "`GET .../overflow`. " + _KINDS
     ),
     response_model=TemplateSaveOut,
     dependencies=staff(_PERM, write=True),
@@ -138,7 +140,8 @@ async def templates_update(
 ) -> TemplateSaveOut:
     tpl = await service.update_template(session, conference_id, template_id, body)
     out = service.template_out(tpl, _margin(request))
-    return TemplateSaveOut(**out.model_dump(), overflow=[])
+    overflow = await preview.spec_overflow(session, conference_id, out)
+    return TemplateSaveOut(**out.model_dump(), overflow=overflow)
 
 
 @fields_router.delete(
