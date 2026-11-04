@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "regsys-agent"
+version = "0.1.0"
+description = "Агент печати наклеек для XP-360B (B2-12)"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "Pillow>=10.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["regsys_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Прототип печати (S-04) оставлен как есть
+extend-exclude = ["spike"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
