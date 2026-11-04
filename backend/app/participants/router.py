@@ -1,4 +1,7 @@
-"""Участники: список, поиск, счётчик, карточка, фото, правка; добавление — ЗАГЛУШКИ (B1-13)."""
+"""Участники: список, поиск, счётчик, карточка, фото, правка, добавление (B1-09..B1-13).
+
+`sample_card` и данные заглушек ниже нужны заглушкам регистрации со стойки (`registration.router`).
+"""
 
 from typing import Annotated
 
@@ -6,15 +9,15 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.common import STUB_TAG, Limit, Offset, Page, err
+from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
 from app.api.stubs import T0
 from app.auth.deps import CurrentStaff, get_current_staff
 from app.badges.service import resolve_photo
 from app.core.db import get_session
 from app.core.errors import AppError
+from app.participants import adding, duplicates, editing, search
 from app.participants import card as cards
-from app.participants import editing, search
 from app.participants.schemas import (
     CheckDuplicatesIn,
     DuplicatesOut,
@@ -197,61 +200,56 @@ async def participants_stats(session: AsyncSession = Depends(get_session)) -> Pa
 @router.post(
     "/check-duplicates",
     operation_id="participants_check_duplicates",
-    tags=[STUB_TAG],
     summary="Поиск дубликатов перед добавлением",
-    description="Разрешение: `participants.add`. Похожие ФИО среди участников (RG-07).",
+    description=(
+        "Разрешение: `participants.add`. Участники активной конференции с похожими фамилией и "
+        "именем (RG-07): регистр и ё/е не различаются, опечатки и перестановка фамилии с именем "
+        "находятся, отчество не учитывается. Самые похожие первыми, не больше 10. Пустой список — "
+        "дублей нет, можно добавлять."
+    ),
     response_model=DuplicatesOut,
     dependencies=staff("participants.add", write=True),
     responses=err(401, 403, 422),
 )
-async def participants_check_duplicates(body: CheckDuplicatesIn) -> DuplicatesOut:
-    needle = body.last_name.strip().lower().replace("ё", "е")
-    items = [p for p in _SHORT if p.full_name.lower().replace("ё", "е").startswith(needle)]
+async def participants_check_duplicates(
+    body: CheckDuplicatesIn, request: Request, session: AsyncSession = Depends(get_session)
+) -> DuplicatesOut:
+    settings = request.app.state.settings
+    items = await duplicates.find_duplicates(
+        session,
+        body.last_name,
+        body.first_name,
+        threshold=settings.duplicate_similarity,
+        limit=settings.duplicate_limit,
+    )
     return DuplicatesOut(items=items)
 
 
 @router.post(
     "",
     operation_id="participants_create",
-    tags=[STUB_TAG],
     summary="Добавить участника и зарегистрировать",
     description=(
-        "Разрешение: `participants.add` (+ `stickers.print` при `with_sticker`). "
-        "Участник получает пометку «Добавлен вручную» и сразу регистрируется (RG-07)."
+        "Разрешение: `participants.add` (+ `stickers.print` при `with_sticker`). Участник "
+        "активной конференции получает пометку «Добавлен вручную» и сразу регистрируется на "
+        "стойке; наклейка печатается на принтер панели сотрудника по шаблону «Данные изменены» "
+        "(RG-07, ER-02). Принтер в панели не выбран — регистрация проходит, пометка «Наклейка не "
+        "напечатана», `print_job_id = null`."
     ),
     status_code=201,
     response_model=ParticipantCreatedOut,
     dependencies=staff("participants.add", write=True),
-    responses=err(401, 403, 422),
+    responses=err(401, 403, (409, "`no_active_conference`: нет активной конференции"), 422),
 )
-async def participants_create(body: ParticipantCreateIn) -> ParticipantCreatedOut:
-    base = sample_card(18)
-    card = base.model_copy(
-        update={
-            "id": 20,
-            "external_id": None,
-            "last_name": body.last_name,
-            "first_name": body.first_name,
-            "middle_name": body.middle_name,
-            "position": body.position,
-            "organization": body.organization,
-            "status": "registered" if body.with_sticker else "registered_no_sticker",
-            "registration": RegistrationInfo(
-                at=T0, source="desk", terminal_name=None, user_login="reg1"
-            ),
-            "flags": [FlagInfo(code="manual_added", at=T0, by="reg1")],
-            "photo_url": None,
-            "print_count": 1 if body.with_sticker else 0,
-            "actions": ParticipantActions(
-                can_register=False,
-                can_reprint=True,
-                can_edit=True,
-                can_foreign_code=True,
-                reasons={"can_register": "Уже зарегистрирован"},
-            ),
-        }
-    )
-    return ParticipantCreatedOut(participant=card, print_job_id=501 if body.with_sticker else None)
+async def participants_create(
+    body: ParticipantCreateIn,
+    request: Request,
+    current: CurrentStaff = Depends(get_current_staff),
+    session: AsyncSession = Depends(get_session),
+) -> ParticipantCreatedOut:
+    result = await adding.add_participant(session, body, current)
+    card = await cards.get_card(session, result.participant_id, current, request.app.state.settings)
+    return ParticipantCreatedOut(participant=card, print_job_id=result.print_job_id)
 
 
 @router.get(

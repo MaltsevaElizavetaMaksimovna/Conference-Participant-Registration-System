@@ -179,13 +179,26 @@ class CheckDuplicatesIn(BaseModel):
     last_name: str = Field(max_length=100, examples=["Иванов"])
     first_name: str = Field(max_length=100, examples=["Пётр"])
 
+    @field_validator("last_name")
+    @classmethod
+    def _last(cls, v: str) -> str:
+        return _not_blank(v, "Укажите фамилию") or ""
+
+    @field_validator("first_name")
+    @classmethod
+    def _first(cls, v: str) -> str:
+        return _not_blank(v, "Укажите имя") or ""
+
 
 class DuplicatesOut(BaseModel):
     items: list[ParticipantShort] = Field(description="Участники с похожими ФИО")
 
 
 class ParticipantCreateIn(BaseModel):
-    """Добавление участника на месте с немедленной регистрацией (RG-07)."""
+    """Добавление участника на месте с немедленной регистрацией (RG-07).
+
+    Пробелы считаются пустым значением; фамилия и имя обязательны.
+    """
 
     last_name: str = Field(max_length=100, examples=["Кузнецов"])
     first_name: str = Field(max_length=100, examples=["Алексей"])
@@ -203,6 +216,12 @@ class ParticipantCreateIn(BaseModel):
     @classmethod
     def _first(cls, v: str) -> str:
         return _not_blank(v, "Укажите имя") or ""
+
+    @field_validator("middle_name", "position", "organization")
+    @classmethod
+    def _optional(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        return v or None
 
 
 class ParticipantCreatedOut(BaseModel):

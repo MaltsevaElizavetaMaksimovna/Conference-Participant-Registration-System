@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     panel_refresh_s: int = 5  # обновление счётчика в панели, NF-01
     search_timeout_s: int = 1  # ответ поиска по ФИО, NF-01
     search_min_chars: int = 2  # поиск начинается с N символов, RG-02
+    duplicate_similarity: float = 0.8  # похожесть фамилии и имени для «возможного дубля», RG-07
+    duplicate_limit: int = 10  # сколько возможных дублей показывать, RG-07
     terminal_fail_threshold: int = 3  # «Нет связи с сервером» после N неудач подряд
     long_poll_timeout_s: int = 25  # long-poll агента печати
     print_confirm_timeout_s: int = 30  # агент не подтвердил задание -> error
