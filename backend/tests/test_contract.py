@@ -13,9 +13,7 @@ from app.auth.deps import CurrentStaff, get_current_staff
 from app.core.permissions import Permission
 from app.imports.schemas import BitrixSettingsOut, ImportAcceptedOut
 from app.participants.schemas import (
-    DuplicatesOut,
     ParticipantCard,
-    ParticipantCreatedOut,
     ParticipantShort,
 )
 from app.printing.schemas import AgentJob
@@ -178,6 +176,8 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/participants/{}/photo"),
     ("PATCH", "/api/participants/{}"),
     ("GET", "/api/events/stream"),
+    ("POST", "/api/participants/check-duplicates"),
+    ("POST", "/api/participants"),
 }
 
 
@@ -434,23 +434,6 @@ CASES: list[Case] = [
         },
         200,
         BitrixSettingsOut,
-    ),
-    # participants
-    (
-        "p_dups",
-        "POST",
-        "/api/participants/check-duplicates",
-        {"json": {"last_name": "Иванов", "first_name": "Пётр"}},
-        200,
-        DuplicatesOut,
-    ),
-    (
-        "p_create",
-        "POST",
-        "/api/participants",
-        {"json": {"last_name": "Кузнецов", "first_name": "Алексей", "with_sticker": True}},
-        201,
-        ParticipantCreatedOut,
     ),
     # desk
     (
