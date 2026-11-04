@@ -1,19 +1,14 @@
-"""Заглушки шаблонов: подгонка (B2-10), предпросмотр, overflow, пробная печать (B2-09)."""
+"""Заглушка шаблонов: подгонка под ленту (B2-10)."""
 
-from typing import Annotated
+from fastapi import APIRouter
 
-from fastapi import APIRouter, Query, Response
-
-from app.api.common import STUB_TAG, PrintJobRefOut, err
+from app.api.common import STUB_TAG, err
 from app.api.deps import staff
-from app.api.stubs import PNG_1X1, T0
+from app.api.stubs import T0
 from app.templates.schemas import (
-    OverflowItem,
-    OverflowOut,
     ResizeIn,
     TemplateElement,
     TemplateOut,
-    TemplateTestPrintIn,
 )
 
 router = APIRouter(prefix="/admin/conferences", tags=["admin: templates", STUB_TAG])
@@ -52,17 +47,6 @@ def _elements() -> list[TemplateElement]:
     ]
 
 
-def _overflow() -> list[OverflowItem]:
-    return [
-        OverflowItem(
-            participant_id=17,
-            full_name="Иванов Пётр Сергеевич",
-            field="organization",
-            value="Общество с ограниченной ответственностью «Ромашка»",
-        )
-    ]
-
-
 def _template(conference_id: int, template_id: int) -> TemplateOut:
     return TemplateOut(
         id=template_id,
@@ -94,64 +78,3 @@ async def templates_resize(conference_id: int, template_id: int, body: ResizeIn)
     return _template(conference_id, template_id).model_copy(
         update={"width_mm": body.width_mm, "height_mm": body.height_mm, "version": 4}
     )
-
-
-@router.get(
-    _BASE + "/{template_id}/preview.png",
-    operation_id="templates_preview",
-    summary="Предпросмотр шаблона",
-    description=(
-        "Разрешение: `conferences.manage`. PNG с данными участника `participant_id` или "
-        "образцом. Заглушка отдаёт пиксель 1×1."
-    ),
-    response_class=Response,
-    responses={
-        200: {
-            "description": "Предпросмотр наклейки",
-            "content": {"image/png": {"schema": {"type": "string", "format": "binary"}}},
-        },
-        **err(401, 403, 404),
-    },
-    dependencies=staff(_PERM),
-)
-async def templates_preview(
-    conference_id: int,
-    template_id: int,
-    participant_id: Annotated[
-        int | None, Query(description="Чьими данными рисовать; без него — образец")
-    ] = None,
-) -> Response:
-    return Response(content=PNG_1X1, media_type="image/png")
-
-
-@router.get(
-    _BASE + "/{template_id}/overflow",
-    operation_id="templates_overflow",
-    summary="Участники, которые не помещаются в шаблон",
-    description=(
-        "Разрешение: `conferences.manage`. Данные не помещаются даже минимальным кеглем (PR-03)."
-    ),
-    response_model=OverflowOut,
-    dependencies=staff(_PERM),
-    responses=err(401, 403, 404),
-)
-async def templates_overflow(conference_id: int, template_id: int) -> OverflowOut:
-    return OverflowOut(items=_overflow())
-
-
-@router.post(
-    _BASE + "/{template_id}/test-print",
-    operation_id="templates_test_print",
-    summary="Пробная печать шаблона",
-    description=(
-        "Разрешение: `conferences.manage`. Пробная печать без регистрации участника (PR-02). "
-        "Статус — `GET /api/print-jobs/{id}`."
-    ),
-    response_model=PrintJobRefOut,
-    dependencies=staff(_PERM, write=True),
-    responses=err(401, 403, 404, 422),
-)
-async def templates_test_print(
-    conference_id: int, template_id: int, body: TemplateTestPrintIn
-) -> PrintJobRefOut:
-    return PrintJobRefOut(print_job_id=504)
