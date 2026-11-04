@@ -16,8 +16,7 @@ from app.participants.schemas import (
     ParticipantCard,
     ParticipantShort,
 )
-from app.printing.schemas import AgentJob
-from app.registration.schemas import PrintJobOut, RegisterOut
+from app.registration.schemas import RegisterOut
 from app.templates.schemas import TemplateElement
 from app.terminals.deps import (
     CurrentAgent,
@@ -31,7 +30,6 @@ from app.terminals.schemas import (
     ScanFound,
     ScanNotFound,
     ScanOut,
-    TerminalPrintJobOut,
 )
 
 # Параметры пути записаны как `{}`.
@@ -127,12 +125,13 @@ TERMINAL = {"Authorization": "Terminal test-token"}
 AGENT = {"Authorization": "Agent test-token"}
 CSRF = {"X-Requested-With": "rs"}
 
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-JPEG_MAGIC = b"\xff\xd8\xff"
-
 # Эндпоинты с настоящей логикой (проверяются в test_terminals.py, test_printers.py,
 # test_agent_auth.py): у них нет тега `stub`, заглушками их здесь не гоняем.
 REAL: set[tuple[str, str]] = {
+    ("GET", "/api/print-jobs/{}"),
+    ("GET", "/api/agent/jobs/next"),
+    ("POST", "/api/agent/jobs/{}/result"),
+    ("GET", "/api/terminal/print-jobs/{}"),
     ("GET", "/api/printers"),
     ("GET", "/api/admin/terminals"),
     ("POST", "/api/admin/terminals"),
@@ -447,27 +446,6 @@ CASES: list[Case] = [
     ),
     ("reprint", "POST", "/api/participants/17/reprint", {}, 200, PrintJobRefOut),
     ("foreign", "POST", "/api/participants/17/foreign-code", {}, 200, PrintJobRefOut),
-    ("print_job", "GET", "/api/print-jobs/501", {}, 200, PrintJobOut),
-    # terminal
-    (
-        "t_print_job",
-        "GET",
-        "/api/terminal/print-jobs/501",
-        {"headers": TERMINAL},
-        200,
-        TerminalPrintJobOut,
-    ),
-    # agent
-    ("a_next", "GET", "/api/agent/jobs/next", {"headers": AGENT}, 200, AgentJob),
-    ("a_next_empty", "GET", "/api/agent/jobs/next?wait=0", {"headers": AGENT}, 204, None),
-    (
-        "a_result",
-        "POST",
-        "/api/agent/jobs/501/result",
-        {"headers": AGENT, "json": {"ok": False, "error": "Нет ленты"}},
-        204,
-        None,
-    ),
 ]
 
 
@@ -489,18 +467,6 @@ async def test_stub_endpoint(
         assert r.content == b""
     else:
         TypeAdapter(model).validate_json(r.content)
-
-
-# ------------------------------------------------------------- бинарные файлы
-
-
-async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
-    import base64
-
-    r = await client.get("/api/agent/jobs/next", headers=AGENT)
-    job = AgentJob.model_validate_json(r.content)
-    assert job.copies
-    assert base64.b64decode(job.copies[0].png_base64).startswith(PNG_MAGIC)
 
 
 # Отключённый терминал (423) и неверные токены проверяются по-настоящему в test_terminals.py

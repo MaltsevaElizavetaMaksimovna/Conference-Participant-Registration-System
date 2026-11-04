@@ -144,16 +144,17 @@ async def test_job_endpoints_are_under_agent_auth(
     db_client: httpx.AsyncClient, devices: Devices
 ) -> None:
     _, token = await devices.printer()
+    # С токеном запрос проходит авторизацию: заданий нет (204), задания 1 нет (404)
     calls = [
-        ("GET", "/api/agent/jobs/next?wait=0", {}),
-        ("POST", "/api/agent/jobs/1/result", {"json": {"ok": True}}),
+        ("GET", "/api/agent/jobs/next?wait=0", {}, 204),
+        ("POST", "/api/agent/jobs/1/result", {"json": {"ok": True}}, 404),
     ]
-    for method, url, kwargs in calls:
+    for method, url, kwargs, authorized in calls:
         no_auth = await db_client.request(method, url, **kwargs)
         assert no_auth.status_code == 401, url
         assert no_auth.json()["code"] == "invalid_device_token", url
         ok = await db_client.request(method, url, headers=agent(token), **kwargs)
-        assert ok.status_code == 204, url
+        assert ok.status_code == authorized, url
 
 
 async def test_agent_token_does_not_open_staff_api(
