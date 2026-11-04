@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     photo_max_pixels: int = 40_000_000  # защита от «картинки-бомбы»
     photo_max_side_px: int = 1200
     photo_jpeg_quality: int = 85
+
+    # Резервное копирование (B1-14, NF-05)
+    backup_dir: Path = Path(__file__).resolve().parents[2] / ".data" / "backups"
+    # Второй носитель (флешка, сетевой диск); None — не копировать
+    backup_mirror_dir: Path | None = None
+    backup_interval_min: int = 30  # NF-05
+    backup_keep: int = 48  # сколько последних копий хранить (сутки при 30 мин)
+    # Каталог с pg_dump/pg_restore; None — PATH, затем бинарники pgserver
+    pg_bin_dir: Path | None = None
     login_rate_limit_per_min: int = 10
     # Ограничение перебора пароля: N неудач на (ip, логин) за окно, затем 429
     login_max_failures: int = 10

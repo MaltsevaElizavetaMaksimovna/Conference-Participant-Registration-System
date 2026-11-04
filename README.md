@@ -37,6 +37,24 @@ uvicorn app.main:app --loop app.core.loop:selector_loop_factory --reload
 
 С Docker: `docker compose up`.
 
+## Резервное копирование
+
+Из каталога `backend`. Запустить перед началом регистрации: первая копия сразу, затем каждые 30 мин
+(`RS_BACKUP_INTERVAL_MIN`), файлы в `backend/.data/backups`; копия на второй носитель —
+`RS_BACKUP_MIRROR_DIR`. В копиях персональные данные: хранить так же, как саму БД.
+```bash
+python scripts/backup.py loop
+```
+Проверка пригодности последнего дампа:
+```bash
+python scripts/backup.py verify
+```
+Ручное восстановление базы и фото:
+```bash
+pg_restore --clean --if-exists --no-owner -d <БД> <файл>.dump
+# распаковать архив фото в RS_PHOTO_DIR
+```
+
 ## Проверка
 
 ```bash
