@@ -178,6 +178,7 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/events/stream"),
     ("POST", "/api/participants/check-duplicates"),
     ("POST", "/api/participants"),
+    ("POST", "/api/participants/{}/foreign-code"),
 }
 
 
@@ -445,7 +446,6 @@ CASES: list[Case] = [
         RegisterOut,
     ),
     ("reprint", "POST", "/api/participants/17/reprint", {}, 200, PrintJobRefOut),
-    ("foreign", "POST", "/api/participants/17/foreign-code", {}, 200, PrintJobRefOut),
 ]
 
 
