@@ -19,7 +19,6 @@ from app.participants.schemas import (
     ParticipantShort,
 )
 from app.printing.schemas import AgentJob
-from app.realtime.schemas import EVENT_NAMES, ParticipantUpdatedEvent, StatsEvent
 from app.registration.schemas import PrintJobOut, RegisterOut
 from app.templates.schemas import OverflowOut, TemplateElement, TemplateOut
 from app.terminals.deps import (
@@ -175,6 +174,7 @@ REAL: set[tuple[str, str]] = {
     ("GET", "/api/participants/{}"),
     ("GET", "/api/participants/{}/photo"),
     ("PATCH", "/api/participants/{}"),
+    ("GET", "/api/events/stream"),
 }
 
 
@@ -552,22 +552,6 @@ async def test_agent_job_contains_valid_png(client: httpx.AsyncClient) -> None:
 # и test_agent_auth.py.
 
 
-# ------------------------------------------------------------------- SSE
-
-
-async def test_sse_stream(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/events/stream")
-    assert r.status_code == 200
-    assert r.headers["content-type"].startswith("text/event-stream")
-    assert r.headers["cache-control"] == "no-cache"
-    assert r.headers["x-accel-buffering"] == "no"
-    assert "event: stats" in r.text
-    assert ": keep-alive" in r.text
-    data_line = next(line for line in r.text.splitlines() if line.startswith("data: "))
-    stats = StatsEvent.model_validate_json(data_line.removeprefix("data: "))
-    assert stats.total >= stats.registered
-
-
 # ------------------------------------------------------------------ ошибки
 
 
@@ -608,21 +592,6 @@ async def test_participant_scenarios(client: httpx.AsyncClient) -> None:
 
 
 # ------------------------------------------------- v1.0: новые заглушки
-
-
-async def test_sse_events_have_documented_names_and_shapes(client: httpx.AsyncClient) -> None:
-    r = await client.get("/api/events/stream")
-    events: dict[str, str] = {}
-    name = ""
-    for line in r.text.splitlines():
-        if line.startswith("event: "):
-            name = line.removeprefix("event: ")
-        elif line.startswith("data: "):
-            events[name] = line.removeprefix("data: ")
-    assert set(events) == set(EVENT_NAMES)
-    StatsEvent.model_validate_json(events["stats"])
-    updated = ParticipantUpdatedEvent.model_validate_json(events["participant_updated"])
-    assert set(updated.model_dump()) == {"id", "status", "flags"}
 
 
 async def test_bitrix_settings_never_expose_the_webhook(
