@@ -50,6 +50,13 @@ class ImportMissing(BaseModel):
     full_name: str = Field(examples=["Петрова Анна Ивановна"])
 
 
+class ImportPhotosOut(BaseModel):
+    total: int = Field(0, description="Сколько фото нужно скачать")
+    loaded: int = Field(0, description="Сколько загружено")
+    failed: int = Field(0, description="Сколько не удалось (предупреждения в warnings)")
+    pending: int = Field(0, description="Сколько ещё качается; 0 — загрузка фото закончена")
+
+
 class ImportReportOut(BaseModel):
     batch_id: int = Field(examples=[12])
     conference_id: int = Field(examples=[1])
@@ -76,6 +83,9 @@ class ImportReportOut(BaseModel):
         description="Участники, которых нет в файле (остаются в системе)"
     )
     warnings: list[str] = Field(description="Замечания, не мешающие загрузке")
+    photos: ImportPhotosOut = Field(
+        default_factory=ImportPhotosOut, description="Загрузка фото участников по ссылкам"
+    )
     started_at: datetime = Field(examples=["2026-11-19T18:00:00+03:00"])
     finished_at: datetime | None = Field(examples=["2026-11-19T18:00:07+03:00"])
 

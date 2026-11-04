@@ -15,6 +15,7 @@ import tempfile
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 import psycopg
@@ -91,9 +92,30 @@ def settings(database_url: str) -> Settings:
     return Settings(env="test", database_url=database_url)
 
 
+class RecordingPhotoWorker:
+    """Фоновая загрузка фото в тестах не ходит в сеть: задания только запоминаются (B1-06).
+
+    Тесты самой загрузки ставят настоящий `PhotoWorker` (см. `tests/test_import_photos.py`).
+    """
+
+    def __init__(self) -> None:
+        self.submitted: list[tuple[int, list[Any]]] = []
+
+    def submit(self, batch_id: int, jobs: list[Any]) -> None:
+        if jobs:
+            self.submitted.append((batch_id, jobs))
+
+    async def wait_idle(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+
 @pytest.fixture
 async def app(settings: Settings) -> AsyncIterator[FastAPI]:
     application = create_app(settings)
+    application.state.photo_worker = RecordingPhotoWorker()
     yield application
     await application.state.engine.dispose()
 

@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import make_engine, make_sessionmaker
 from app.core.errors import register_error_handlers
 from app.eventlog.router import router as eventlog_router
+from app.imports.photo_worker import PhotoWorker
 from app.imports.router import router as imports_router
 from app.participants.router import router as participants_router
 from app.printing.router import router as printing_router
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await app.state.print_sweeper.stop()
         await app.state.event_hub.stop()
+        await app.state.photo_worker.stop()
         await engine.dispose()
 
     app = FastAPI(
@@ -154,6 +156,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = make_sessionmaker(engine)
     app.state.event_hub = EventHub(psycopg_conninfo(settings.database_url), app.state.sessionmaker)
     app.state.print_sweeper = PrintSweeper(app.state.sessionmaker, settings)
+    app.state.photo_worker = PhotoWorker(app.state.sessionmaker, lambda: app.state.settings)
 
     app.add_middleware(
         CORSMiddleware,
