@@ -7,7 +7,8 @@
 Правила повторной загрузки: совпадение по `external_id`; поля из `manual_fields` не
 перезаписываются (расхождение попадает в отчёт); регистрации, пометки и история не трогаются;
 участники, которых нет в файле, остаются (список — в отчёте).
-Фото по ссылке скачивает B1-06: здесь ссылка только сохраняется в `source_data["photo_url"]`.
+Ссылка на фото сохраняется в `source_data["photo_url"]`; фото качает `photo_worker` после COMMIT
+импорта (B1-06).
 """
 
 import asyncio
@@ -15,7 +16,7 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import PurePath
-from typing import Any
+from typing import Any, TypeGuard
 
 from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,11 +26,13 @@ from app.core.enums import ChangeSource, ImportSource, ImportStatus
 from app.core.errors import AppError
 from app.core.text import full_name
 from app.imports.columns import FIELD_BY_KEY, FIELDS, REQUIRED_KEYS, unique_slug
+from app.imports.photo_worker import PhotoJob
 from app.imports.readers import ImportFileError, file_too_large, read_table
 from app.imports.schemas import (
     ImportBatchShort,
     ImportConflict,
     ImportMissing,
+    ImportPhotosOut,
     ImportReportOut,
     ImportRowError,
 )
@@ -51,6 +54,14 @@ _NOUN = {"external_id": "идентификатор", "last_name": "фамили
 _UPDATABLE = tuple(f.key for f in FIELDS if f.key not in ("external_id", "photo_url"))
 
 
+@dataclass(frozen=True)
+class ImportResult:
+    """Результат импорта участников из файла."""
+
+    batch_id: int
+    photo_jobs: list[PhotoJob]
+
+
 @dataclass
 class _Outcome:
     total_rows: int = 0
@@ -61,6 +72,7 @@ class _Outcome:
     conflicts: list[ImportConflict] = field(default_factory=list)
     missing: list[ImportMissing] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    photo_jobs: list[PhotoJob] = field(default_factory=list)
 
 
 def row_error(row: int, reason: str) -> ImportRowError:
@@ -91,8 +103,8 @@ async def import_file(
     user_id: int | None,
     file_name: str,
     data: bytes,
-) -> int:
-    """Загружает участников из файла; возвращает id партии. Ошибки файла: 413/422."""
+) -> ImportResult:
+    """Загружает участников из файла; возвращает результат импорта с заданиями на фото."""
     from app.conferences.service import conference_not_found
 
     if await session.get(Conference, conference_id) is None:
@@ -137,7 +149,7 @@ async def import_file(
             500,
             {"batch_id": batch_id},
         ) from e
-    return batch_id
+    return ImportResult(batch_id=batch_id, photo_jobs=outcome.photo_jobs)
 
 
 def _parse(name: str, data: bytes, max_rows: int) -> tuple[TableSource, list[SourceRow]]:
@@ -147,6 +159,10 @@ def _parse(name: str, data: bytes, max_rows: int) -> tuple[TableSource, list[Sou
 
 
 # --------------------------------------------------------------------------- upsert
+
+
+def _is_http_url(url: object) -> TypeGuard[str]:
+    return isinstance(url, str) and url.lower().startswith(("http://", "https://"))
 
 
 async def _apply(
@@ -168,7 +184,9 @@ async def _apply(
     )
 
     new_rows: list[dict[str, Any]] = []
+    new_photo_candidates: list[tuple[str, int, str]] = []
     log_rows: list[dict[str, Any]] = []
+    photo_jobs: list[PhotoJob] = []
     for row in valid:
         ext_id = row.values["external_id"]
         fields, extra, photo = _row_payload(row, source, extra_keys)
@@ -176,8 +194,19 @@ async def _apply(
         if participant is None:
             new_rows.append(_new_participant(conference_id, ext_id, fields, extra, photo))
             out.loaded += 1
+            if _is_http_url(photo):
+                new_photo_candidates.append((ext_id, row.number, photo))
             continue
         changes, photo_changed = _update_participant(participant, fields, extra, photo, out)
+        if photo_changed and _is_http_url(photo):
+            photo_jobs.append(
+                PhotoJob(
+                    participant_id=participant.id,
+                    conference_id=conference_id,
+                    row=row.number,
+                    url=photo,
+                )
+            )
         if changes or photo_changed:
             out.updated += 1
             log_rows.extend(
@@ -197,7 +226,36 @@ async def _apply(
 
     for i in range(0, len(new_rows), _CHUNK * 2):
         await session.execute(insert(Participant), new_rows[i : i + _CHUNK * 2])
-    await session.flush()  # UPDATE изменённых участников
+    await session.flush()  # UPDATE изменённых участников и INSERT новых
+
+    if new_photo_candidates:
+        candidate_ids = [c[0] for c in new_photo_candidates]
+        id_by_ext: dict[str, int] = {}
+        for i in range(0, len(candidate_ids), _CHUNK):
+            chunk = candidate_ids[i : i + _CHUNK]
+            rows_db = await session.execute(
+                select(Participant.id, Participant.external_id).where(
+                    Participant.conference_id == conference_id,
+                    Participant.external_id.in_(chunk),
+                )
+            )
+            for pid, ext in rows_db:
+                if ext is not None:
+                    id_by_ext[ext] = pid
+        for ext_id, row_num, url in new_photo_candidates:
+            if ext_id in id_by_ext:
+                photo_jobs.append(
+                    PhotoJob(
+                        participant_id=id_by_ext[ext_id],
+                        conference_id=conference_id,
+                        row=row_num,
+                        url=url,
+                    )
+                )
+
+    photo_jobs.sort(key=lambda j: j.row)
+    out.photo_jobs = photo_jobs
+
     for i in range(0, len(log_rows), _CHUNK * 2):
         await session.execute(insert(ChangeLog), log_rows[i : i + _CHUNK * 2])
 
@@ -397,6 +455,10 @@ def _update_participant(
     if new_source != old_source:
         p.source_data = new_source
     photo_changed = photo is not False and old_source.get("photo_url") != photo
+    if photo_changed and not _is_http_url(photo):
+        # новой ссылки нет или она не http(s): прежнее фото больше не соответствует файлу
+        p.photo_path = None
+        p.photo_sha256 = None
     return changes, photo_changed
 
 
@@ -435,6 +497,7 @@ def _cap(out: _Outcome) -> None:
 
 
 def _report_json(o: _Outcome) -> dict[str, Any]:
+    total_photos = len(o.photo_jobs)
     return {
         "summary": summary_text(o),
         "total_rows": o.total_rows,
@@ -446,6 +509,12 @@ def _report_json(o: _Outcome) -> dict[str, Any]:
         "conflicts": [c.model_dump() for c in o.conflicts],
         "missing": [m.model_dump() for m in o.missing],
         "warnings": o.warnings,
+        "photos": {
+            "total": total_photos,
+            "loaded": 0,
+            "failed": 0,
+            "done": total_photos == 0,
+        },
     }
 
 
@@ -462,6 +531,17 @@ async def get_report(session: AsyncSession, conference_id: int, batch_id: int) -
         errors = [
             ImportRowError(row=None, reason="внутренняя ошибка", message="Загрузка не удалась")
         ]
+    photos_raw = r.get("photos")
+    if isinstance(photos_raw, dict):
+        total = int(photos_raw.get("total", 0))
+        loaded = int(photos_raw.get("loaded", 0))
+        failed = int(photos_raw.get("failed", 0))
+        done = bool(photos_raw.get("done", False))
+        pending = 0 if done else total
+        photos = ImportPhotosOut(total=total, loaded=loaded, failed=failed, pending=pending)
+    else:
+        photos = ImportPhotosOut()
+
     return ImportReportOut(
         batch_id=batch.id,
         conference_id=batch.conference_id,
@@ -478,6 +558,7 @@ async def get_report(session: AsyncSession, conference_id: int, batch_id: int) -
         conflicts=[ImportConflict(**c) for c in r.get("conflicts", [])],
         missing=[ImportMissing(**m) for m in r.get("missing", [])],
         warnings=r.get("warnings", []),
+        photos=photos,
         started_at=batch.created_at,
         finished_at=batch.finished_at,
     )
@@ -525,4 +606,11 @@ async def list_batches(
     return items, total
 
 
-__all__ = ["ImportFileError", "get_report", "import_file", "list_batches"]
+__all__ = [
+    "ImportFileError",
+    "ImportResult",
+    "PhotoJob",
+    "get_report",
+    "import_file",
+    "list_batches",
+]

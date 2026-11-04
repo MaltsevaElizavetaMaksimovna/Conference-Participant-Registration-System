@@ -58,7 +58,8 @@ _UPLOAD_BODY: dict[str, Any] = {
         "запросе, ответ `202 {batch_id}`, отчёт — `GET .../imports/{batch_id}`. "
         "Повторная загрузка той же конференции обновляет данные по идентификатору, "
         "не сбрасывая регистрации; исправленное вручную из файла не перезаписывается "
-        "(расхождения — в отчёте), отсутствующие в файле не удаляются (список — в отчёте)."
+        "(расхождения — в отчёте), отсутствующие в файле не удаляются (список — в отчёте). "
+        "Фото по ссылкам скачиваются фоном после ответа; прогресс — `photos` в отчёте."
     ),
     status_code=202,
     response_model=ImportAcceptedOut,
@@ -86,7 +87,7 @@ async def imports_upload(
     settings: Settings = request.app.state.settings
     limit = settings.import_max_file_mb * 1024 * 1024
     data = await file.read(limit + 1)  # на байт больше лимита, чтобы заметить превышение
-    batch_id = await service.import_file(
+    result = await service.import_file(
         session,
         settings,
         conference_id=conference_id,
@@ -94,7 +95,8 @@ async def imports_upload(
         file_name=file.filename or "",
         data=data,
     )
-    return ImportAcceptedOut(batch_id=batch_id)
+    request.app.state.photo_worker.submit(result.batch_id, result.photo_jobs)
+    return ImportAcceptedOut(batch_id=result.batch_id)
 
 
 @router.get(
