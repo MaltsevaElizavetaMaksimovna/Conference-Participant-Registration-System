@@ -7,11 +7,17 @@ from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
 from app.core.config import Settings
 from app.core.db import get_session
-from app.templates import fields, preview, preview_router, service, stub_router
-from app.templates.schemas import TemplateFieldOut, TemplateIn, TemplateOut, TemplateSaveOut
+from app.templates import fields, preview, preview_router, service
+from app.templates.schemas import (
+    ResizeIn,
+    TemplateFieldOut,
+    TemplateIn,
+    TemplateOut,
+    TemplateSaveOut,
+)
 
-# Заглушки (тег `stub`) — в stub_router.py; `router` оставлен здесь для app.main
-router = stub_router.router
+# заглушек в модуле не осталось; пустой `router` оставлен для app.main
+router = APIRouter()
 # Реальные эндпоинты модуля (без тега `stub`)
 fields_router = APIRouter(prefix="/admin/conferences", tags=["admin: templates"])
 # Предпросмотр, переполнение и пробная печать (B2-09)
@@ -193,3 +199,27 @@ async def templates_copy_to(
 ) -> TemplateOut:
     copy = await service.copy_template(session, conference_id, template_id, target_conference_id)
     return service.template_out(copy, _margin(request))
+
+
+@fields_router.post(
+    _BASE + "/{template_id}/resize",
+    operation_id="templates_resize",
+    summary="Изменить размер наклейки",
+    description=(
+        "Разрешение: `conferences.manage`. Новый размер ленты; все элементы пропорционально "
+        "масштабируются, кегли — по меньшему из коэффициентов, не меньше 6 pt (PR-05). "
+        "`version` растёт, терминалы печатают по новому размеру со следующей наклейки."
+    ),
+    response_model=TemplateOut,
+    dependencies=staff(_PERM, write=True),
+    responses=err(401, 403, _TPL_404, 422),
+)
+async def templates_resize(
+    request: Request,
+    conference_id: int,
+    template_id: int,
+    body: ResizeIn,
+    session: AsyncSession = Depends(get_session),
+) -> TemplateOut:
+    tpl = await service.resize_template(session, conference_id, template_id, body)
+    return service.template_out(tpl, _margin(request))

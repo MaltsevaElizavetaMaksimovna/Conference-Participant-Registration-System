@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.conferences.service import conference_not_found
 from app.core.errors import AppError
 from app.models.conference import Conference, LabelTemplate
-from app.templates.schemas import TemplateElement, TemplateIn, TemplateOut
+from app.templates.resize import resize_spec
+from app.templates.schemas import ResizeIn, TemplateElement, TemplateIn, TemplateOut
 from app.templates.validation import check_geometry, edge_warnings
 
 # Поля конференции, через которые она использует шаблон
@@ -177,3 +178,12 @@ async def copy_template(
     await session.commit()
     await session.refresh(copy)
     return copy
+
+
+async def resize_template(
+    session: AsyncSession, conference_id: int, template_id: int, body: ResizeIn
+) -> LabelTemplate:
+    """Масштабировать шаблон под новую ленту; `version` растёт, как при сохранении."""
+    tpl = await get_template(session, conference_id, template_id)
+    new = resize_spec(template_spec(tpl), body.width_mm, body.height_mm)
+    return await update_template(session, conference_id, template_id, new)
