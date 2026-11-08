@@ -47,10 +47,56 @@ const initialFilters: ParticipantFilters = {
     offset: 0,
 };
 
+const MOCK_PARTICIPANTS: ParticipantShort[] = [
+    {
+        id: 1,
+        full_name: 'Иванов Иван Иванович',
+        organization: 'ТПУ, ИШИТР',
+        status: 'registered',
+        flags: [],
+    },
+    {
+        id: 2,
+        full_name: 'Петрова Анна Сергеевна',
+        organization: 'ООО Ромашка',
+        status: 'not_registered',
+        flags: [],
+    },
+    {
+        id: 3,
+        full_name: 'Сидоров Пётр Алексеевич',
+        organization: 'Газпром',
+        status: 'registered_no_sticker',
+        flags: ['manual_added', 'sticker_not_printed'],
+    },
+    {
+        id: 4,
+        full_name: 'Фёдорова Елена Викторовна',
+        organization: 'ТГУ',
+        status: 'registered',
+        flags: ['data_changed'],
+    },
+    {
+        id: 5,
+        full_name: 'Смирнов Алексей Владимирович',
+        organization: 'ТПУ, ИШИТР',
+        status: 'registered',
+        flags: ['foreign_code'],
+    },
+    {
+        id: 6,
+        full_name: 'Кузнецов Дмитрий Олегович',
+        organization: 'Сбербанк',
+        status: 'not_registered',
+        flags: ['error_reported'],
+    },
+];
+
+
 const initialState: AdminState = {
-    participants: [],
-    listTotal: 0,
-    listStatus: 'idle',
+    participants: MOCK_PARTICIPANTS,
+    listTotal: MOCK_PARTICIPANTS.length,
+    listStatus: 'success',
     listError: null,
 
     filters: initialFilters,
@@ -59,7 +105,10 @@ const initialState: AdminState = {
     selectedStatus: 'idle',
     selectedError: null,
 
-    stats: null,
+    stats: {
+        registered: 3, // У нас 3 человека со статусом registered
+        total: 6,      // Всего 6
+    },
 
     printers: [],
     panelPrinterId: null,
@@ -75,16 +124,27 @@ export const fetchParticipants = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'admin/fetchParticipants',
-    async (params, {rejectWithValue, getState}) => {
-        try {
-            const state = getState() as { adminReducer: AdminState };
-            const current = state.adminReducer.filters
-            const newParams = {...current, ...params}
-            const response = await ParticipantService.list(newParams);
-            return response.data
-        } catch (e) {
-            return rejectWithValue(parseError(e));
-        }
+    // async (params, {rejectWithValue, getState}) => {
+    //     try {
+    //         const state = getState() as { adminReducer: AdminState };
+    //         const current = state.adminReducer.filters
+    //         const newParams = {...current, ...params}
+    //         const response = await ParticipantService.list(newParams);
+    //         return response.data
+    //     } catch (e) {
+    //         return rejectWithValue(parseError(e));
+    //     }
+    // }
+    async (_, { rejectWithValue }) => {
+        // МОК
+        await new Promise(r => setTimeout(r, 500));
+        return {
+            items: [
+                { id: 1, full_name: 'Иванов Иван Иванович', organization: 'ТПУ', status: 'registered', flags: [] },
+                { id: 2, full_name: 'Петрова Анна Сергеевна', organization: 'ООО Ромашка', status: 'not_registered', flags: [] },
+            ],
+            total: 2
+        };
     }
 )
 

@@ -1,49 +1,75 @@
 import {ConfirmFrame, LoadingFrame, PrintingFrame, ScanFrame} from "~/modules/ScanModule";
 import {useAppDispatch, useAppSelector} from "~/hooks/redux";
-import {ErrorPanel} from "~/pages/ErrorPanel";
-import {PrintingSuccessFrame} from "~/modules/ScanModule/components/PrintingSuccessFrame";
-import {WithoutPrintingSuccessFrame} from "~/modules/ScanModule/components/WithoutPrintingSuccessFrame";
 import {useEffect} from "react";
-import {conferenceSlice} from "~/store/reducers/ConferenceSlice";
+import {pingTerminal, terminalMounted} from "~/store/reducers/TerminalSlice";
+import {SuccessFrame} from "~/modules/ScanModule/components/SuccessFrame";
+import {ErrorFrame} from "~/modules/ScanModule/components/ErrorFrame";
+import {OfflineFrame} from "~/modules/ScanModule/components/OfflineFrame";
 
 
 export const UserPanel = () => {
     const dispatch = useAppDispatch();
-    const {terminalMounted} = conferenceSlice.actions
+    const {connection, screen} = useAppSelector(state => state.terminalReducer);
     useEffect(() => {
         dispatch(terminalMounted())
     }, [dispatch])
 
-    const scanState = useAppSelector(state => state.scanReducer)
-    const badgeType = useAppSelector(state => state.conferenceReducer.conference?.badgeType)
+    const renderContent = () => {
+        if (connection === 'offline') {
+            return <OfflineFrame/>;
+        }
 
-    switch (scanState.status) {
-        case 'scanning':
-            return (
-                <ScanFrame/>
-            )
-        case 'loading':
-            return (
-                <LoadingFrame/>
-            )
-        case 'confirm':
-            return (
-                <ConfirmFrame userData={scanState.user!}/>
-            )
-        case 'error':
-            return (
-                <ErrorPanel scanState={scanState}/>
-            )
-        case 'printing':
-            return (
-                <PrintingFrame/>
-            )
-        case 'finished':
-            return badgeType === 'without'
-                ? <WithoutPrintingSuccessFrame/>
-                : <PrintingSuccessFrame/>
-        default:
-            const exhaustiveCheck: never = scanState.status
-    }
+        switch (screen) {
+            case 'idle':
+                return <ScanFrame/>;
+            case 'scanning':
+                return <LoadingFrame/>;
+            case 'confirm':
+                return <ConfirmFrame/>;
+            case 'printing':
+                return <PrintingFrame/>;
+            case 'success':
+                return <SuccessFrame/>;
+            case 'error':
+                return <ErrorFrame/>;
+            default:
+                const exhaustiveCheck: never = screen;
+                return null;
+        }
+    };
 
-};
+    return (
+        <div className="terminal_container">
+            <header className="terminal_header">
+                <div className="terminal_brand">
+                    <svg width="60" height="60" viewBox="0 0 260 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M259.705 102.617L216.501 86.8926L173.278 102.617L130.074 86.8926L86.8515 102.617L43.6474 86.8926L0.443359 102.617V157.576L43.6474 173.32L86.8515 157.576L130.074 173.32L173.278 157.576L216.501 173.32L259.705 157.576V102.617Z" fill="black"/>
+                        <path d="M259.687 16.191H259.705L216.501 0.466797L173.278 16.191L130.074 0.466797L86.8515 16.191L43.6474 0.466797L0.443359 16.191V71.1695L43.6474 86.8937L86.8515 71.1695L130.074 86.8937L173.278 71.1695L216.501 86.8937L259.705 71.1695V16.191H259.687Z" fill="#28BE46"/>
+                        <path d="M86.8527 16.191L43.6298 31.9341L0.425781 16.191L43.6298 0.466797L86.8527 16.191Z" fill="black"/>
+                        <path d="M173.26 16.191L130.056 31.9341L86.8516 16.191L130.056 0.466797L173.26 16.191Z" fill="black"/>
+                        <path d="M259.689 16.191L216.485 31.9341L173.262 16.191L216.485 0.466797L259.689 16.191Z" fill="black"/>
+                        <path d="M0.425781 157.578L43.6298 141.854L86.8527 157.578L43.6298 173.321L0.425781 157.578Z" fill="#28BE46"/>
+                        <path d="M173.281 157.578L216.485 141.854L259.708 157.578L216.485 173.321L173.281 157.578Z" fill="#28BE46"/>
+                        <path d="M173.26 102.619L130.056 118.343L86.8516 102.619V157.579L130.056 173.322L173.26 157.579V102.619Z" fill="#28BE46"/>
+                        <path d="M259.705 189.047L216.501 173.322L173.278 189.047L130.074 173.322L86.8515 189.047L43.6474 173.322L0.443359 189.047V244.006L43.6474 259.73L86.8515 244.006L130.074 259.73L173.278 244.006L216.501 259.73L259.705 244.006V189.047Z" fill="black"/>
+                        <path d="M0.425781 244.004L43.6298 228.279L86.8527 244.004L43.6298 259.728L0.425781 244.004Z" fill="#28BE46"/>
+                        <path d="M173.281 244.004L216.485 228.279L259.708 244.004L216.485 259.728L173.281 244.004Z" fill="#28BE46"/>
+                        <path d="M173.26 189.045L130.056 204.769L86.8516 189.045V244.005L130.056 259.729L173.26 244.005V189.045Z" fill="#28BE46"/>
+                    </svg>
+
+                    <div className="terminal_brand_title">
+                        <a style={{textDecoration: 'none', color: 'black'}} href='/'>Томский<br/>политехнический<br/>университет</a>
+                    </div>
+                </div>
+                <div className="terminal_status">
+                    <span className={`terminal_status_dot ${connection === 'offline' ? 'terminal_status_dot--offline' : ''}`} />
+                    {connection === 'offline' ? 'Нет связи' : 'Онлайн'}
+                </div>
+            </header>
+
+            <main className="terminal_content">
+                {renderContent()}
+            </main>
+        </div>
+    )
+}

@@ -19,13 +19,26 @@ const initialState: AuthState = {
 
 export const login = createAsyncThunk<MeOut, LoginIn, { rejectValue: Errors }>(
     'auth/login',
-    async (data: LoginIn, {rejectWithValue}) => {
-        try {
-            const response = await AuthService.login(data);
-            return response.data
-        } catch (e) {
-            return rejectWithValue(parseError(e))
+    // async (data: LoginIn, {rejectWithValue}) => {
+    //     try {
+    //         const response = await AuthService.login(data);
+    //         return response.data
+    //     } catch (e) {
+    //         return rejectWithValue(parseError(e))
+    //     }
+    // }
+    async (data, { rejectWithValue }) => {
+        // МОК
+        await new Promise(r => setTimeout(r, 500));
+        if (data.password !== 'admin') {
+            return rejectWithValue({ message: 'Неверный пароль', errorType: 'invalidCredentials', kind: 'business' });
         }
+        return {
+            id: 1, full_name: 'Иванов И.И.', login: 'admin',
+            role: { id: 1, name: 'Администратор' },
+            permissions: ['participants.view', 'registration.desk'],
+            panel_printer_id: null
+        };
     }
 )
 

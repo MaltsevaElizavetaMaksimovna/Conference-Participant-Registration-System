@@ -1,48 +1,37 @@
-import {TerminalBlock} from "~/components/TerminalBlock";
 import {useCallback} from "react";
 import {type IDetectedBarcode, Scanner} from '@yudiel/react-qr-scanner';
 import {useAppDispatch, useAppSelector} from "~/hooks/redux";
-import {findUser} from "~/store/reducers/TerminalSlice";
-import {Spinner} from "~/components/Spinner";
+import {scanCode} from "~/store/reducers/TerminalSlice";
 
 export const ScanFrame = () => {
-    const {conference} = useAppSelector(state => state.conferenceReducer)
+    const {active} = useAppSelector(state => state.conferenceReducer)
     const dispatch = useAppDispatch();
-    const {status} = useAppSelector(state => state.scanReducer);
+    const {screen} = useAppSelector(state => state.terminalReducer);
 
     const handleScanning = useCallback(async (result: IDetectedBarcode[]) => {
-        if (!result.length || status === 'scanning' || !conference) return
+        if (!result.length || screen !== 'idle' || !active) return
         const userCode = result[0].rawValue
         try {
-            await dispatch(findUser(userCode)).unwrap()
+            await dispatch(scanCode(userCode)).unwrap()
         } catch (e) {
             console.error(e);
         }
-    }, [dispatch, status, conference]);
+    }, [dispatch, screen, active]);
 
     return (
-        <TerminalBlock sectionTitle={"Терминал · экран сканирования"}>
-            {conference
-                ? (
-                    <>
-                        <Scanner
-                            onScan={handleScanning}
-                            onError={(error) => console.error(error)}
-                            styles={{container: {width: '340px', height: '340px', paddingBottom: '40px'}}}
-                        />
-                        <h2>Приложите QR-код к сканеру</h2>
-                        <p>Код вы получили после онлайн-регистрации</p>
-                    </>
-                )
-                : (
-                    <>
-                        <Spinner/>
-                        <h2>Загрузка...</h2>
-                    </>
-                )
-
-            }
-
-        </TerminalBlock>
+        <>
+            <h1 className="terminal_title">Приложите QR-код</h1>
+            <p className="terminal_subtitle">Отсканируйте код из письма-приглашения</p>
+            <div className="terminal_scan_frame">
+                <Scanner
+                    onScan={handleScanning}
+                    onError={(e) => console.error(e)}
+                    styles={{
+                        container: { width: '100%', height: '100%' },
+                        video: { objectFit: 'cover' }
+                    }}
+                />
+            </div>
+        </>
     );
 };

@@ -13,7 +13,7 @@ export function setupRetry(instance: AxiosInstance) {
             const status = error.response?.status ?? 0;
             const hasIdempotencyKey = !!error.config?.headers?.['Idempotency-Key'];
 
-            if (!error.response) return true; // сетевая
+            if (!error.response) return true;
 
             if (status >= 500) {
                 if (['get', 'head', 'put', 'patch'].includes(method)) return true;

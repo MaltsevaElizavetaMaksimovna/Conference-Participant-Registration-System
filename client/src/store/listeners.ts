@@ -1,116 +1,107 @@
 import {startAppListening} from "~/store/listenerMiddleware";
-import {completeRegistration, terminalSlice} from "~/store/reducers/TerminalSlice";
-import {AUTO_RESET_TIMEOUT, FINISH_OR_ERROR_RESET_TIMEOUT, POLLING_INTERVAL} from "~/config/consts";
-import {isAnyOf} from "@reduxjs/toolkit";
-import {adminSlice, fetchUsers} from "~/store/reducers/AdminSlice";
 import {
-    conferenceSlice,
-    fetchConferenceSettings,
-} from "~/store/reducers/ConferenceSlice";
+    confirmRegistration,
+    fetchTerminalJob,
+    pingTerminal,
+    resetToIdle,
+    showResult, terminalMounted
+} from "~/store/reducers/TerminalSlice";
+import {AUTO_RESET_TIMEOUT, FINISH_OR_ERROR_RESET_TIMEOUT} from "~/config/consts";
 
-const {resetStatus, flagMismatch, finishWithoutPrinting, errorWhileFetchingConference} = terminalSlice.actions;
-const {setPanelOpen, setPanelClose} = adminSlice.actions;
-const {terminalMounted} = conferenceSlice.actions;
 
-startAppListening({
-    predicate: (_, currentState, previousState) => {
-        const isFalseTriggered = previousState.scanReducer.status === 'error' || previousState.scanReducer.status === 'finished'
-        const isOnFinish = currentState.scanReducer.status === 'error' || currentState.scanReducer.status === 'finished'
-        if (isFalseTriggered || !isOnFinish) return false
+export function registerListeners() {
+    startAppListening({
+        actionCreator: terminalMounted,
+        effect: async (_, api) => {
+            await api.dispatch(pingTerminal());
 
-        return currentState.scanReducer.error?.kind == 'business';
-    },
-    effect: async (_, api) => {
-        api.cancelActiveListeners()
-        const isReturnedByButton = await api.condition(resetStatus.match, FINISH_OR_ERROR_RESET_TIMEOUT)
-        if (!isReturnedByButton) api.dispatch(resetStatus())
-    }
+            while (true) {
+                await api.delay(3000);
 
-})
+                const state = api.getState().terminalReducer;
 
-startAppListening({
-    predicate: (_, currentState, previousState) => {
-        if (currentState.scanReducer.status === previousState.scanReducer.status) return false
-        return currentState.scanReducer.status === 'confirm';
-    },
-    effect: async (_, api) => {
-        api.cancelActiveListeners()
-        const isButtonPressed = await api.condition(isAnyOf(completeRegistration.pending, flagMismatch.match), AUTO_RESET_TIMEOUT)
-        if (!isButtonPressed) api.dispatch(resetStatus())
-    }
-})
+                if (state.connection === 'disabled') {
+                    break;
+                }
 
-startAppListening({
-    actionCreator: setPanelOpen,
-    effect: async (_, api) => {
-        api.cancelActiveListeners()
-        await api.dispatch(fetchUsers())
-
-        while (api.getState().adminReducer.isPanelOpen) {
-            await api.delay(POLLING_INTERVAL)
-            if (document.visibilityState === 'hidden') continue
-            await api.dispatch(fetchUsers())
-        }
-    }
-})
-
-startAppListening({
-    actionCreator: setPanelClose,
-    effect: async (_, api) => {
-        api.cancelActiveListeners()
-    }
-})
-
-startAppListening({
-    actionCreator: completeRegistration.fulfilled,
-    effect: async (_, api) => {
-        const state = api.getState()
-
-        if (state.conferenceReducer.conference?.badgeType == 'without') {
-            api.dispatch(finishWithoutPrinting())
-        }
-    }
-})
-
-startAppListening({
-    actionCreator: terminalMounted,
-    effect: async (_, api) => {
-        api.cancelActiveListeners()
-
-        if (api.getState().conferenceReducer.conference !== null) return;
-
-        const result = await api.dispatch(fetchConferenceSettings())
-
-        if (fetchConferenceSettings.rejected.match(result)) {
-            api.dispatch(errorWhileFetchingConference(api.getState().conferenceReducer.error!))
-        }
-
-    }
-})
-
-startAppListening({
-    actionCreator: errorWhileFetchingConference,
-    effect: async (_, api) => {
-        api.cancelActiveListeners();
-
-        while (true) {
-            await api.delay(15_000);
-
-            const result = await api.dispatch(fetchConferenceSettings());
-            if (fetchConferenceSettings.fulfilled.match(result)) {
-                return;
+                await api.dispatch(pingTerminal());
             }
-        }
-    },
-});
+        },
+    });
 
-startAppListening({
-    actionCreator: fetchConferenceSettings.fulfilled,
-    effect: (_, api) => {
-        const status = api.getState().scanReducer.status;
+    startAppListening({
+        predicate: (_, currentState, previousState) => {
+            return (
+                previousState.terminalReducer.screen !== 'confirm' &&
+                currentState.terminalReducer.screen === 'confirm'
+            );
+        },
+        effect: async (_, api) => {
+            api.cancelActiveListeners();
 
-        if (status === 'error') {
-            api.dispatch(resetStatus());
-        }
-    },
-});
+            const timeout = api.getState().terminalReducer.ping?.settings.idle_timeout_s
+                ? api.getState().terminalReducer.ping!.settings.idle_timeout_s * 1000
+                : AUTO_RESET_TIMEOUT;
+
+            const acted = await api.condition(
+                (_, state) => state.terminalReducer.screen !== 'confirm',
+                timeout
+            );
+
+            if (!acted) {
+                api.dispatch(resetToIdle());
+            }
+        },
+    });
+
+    startAppListening({
+        predicate: (_, currentState, previousState) => {
+            const wasFinal = previousState.terminalReducer.screen === 'success' || previousState.terminalReducer.screen === 'error';
+            const isFinal = currentState.terminalReducer.screen === 'success' || currentState.terminalReducer.screen === 'error';
+            return !wasFinal && isFinal;
+        },
+        effect: async (_, api) => {
+            api.cancelActiveListeners();
+
+            const timeout = api.getState().terminalReducer.ping?.settings.result_screen_s
+                ? api.getState().terminalReducer.ping!.settings.result_screen_s * 1000
+                : FINISH_OR_ERROR_RESET_TIMEOUT;
+
+            const returned = await api.condition(resetToIdle.match, timeout);
+
+            if (!returned) {
+                api.dispatch(resetToIdle());
+            }
+        },
+    });
+
+    startAppListening({
+        actionCreator: confirmRegistration.fulfilled,
+        effect: async (action, api) => {
+            if (!action.payload.print_job_id) return;
+
+            const printJobId = action.payload.print_job_id;
+            const timeout = 15_000;
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeout) {
+                await api.delay(500);
+
+                const res = await api.dispatch(fetchTerminalJob(printJobId));
+
+                if (fetchTerminalJob.fulfilled.match(res)) {
+                    const status = res.payload.status;
+                    if (status === 'done' || status === 'error') {
+                        return;
+                    }
+                }
+            }
+
+            api.dispatch(showResult({
+                screen: 'error',
+                message: 'Не удалось получить статус печати. Обратитесь к стойке регистрации',
+            }));
+        },
+    });
+}
+

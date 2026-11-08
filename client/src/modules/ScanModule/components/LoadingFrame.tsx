@@ -1,11 +1,10 @@
-import {TerminalBlock} from "~/components/TerminalBlock";
-import {Spinner} from "~/components/Spinner";
 
 export const LoadingFrame = () => {
     return (
-        <TerminalBlock sectionTitle={"Терминал · загрузка"}>
-            <Spinner/>
-            <h2>Загрузка...</h2>
-        </TerminalBlock>
+        <>
+            <div className="terminal_spinner"/>
+            <h1 className="terminal_title">Проверяем код…</h1>
+            <p className="terminal_subtitle">Пожалуйста, подождите</p>
+        </>
     );
 };

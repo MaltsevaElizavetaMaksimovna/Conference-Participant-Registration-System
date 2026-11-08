@@ -1,45 +1,57 @@
-import {TerminalBlock} from "~/components/TerminalBlock";
-import type {UserData} from "~/models/UserData";
-import {useAppDispatch} from "~/hooks/redux";
-import {completeRegistration, terminalSlice} from "~/store/reducers/TerminalSlice";
+import {useAppDispatch, useAppSelector} from '~/hooks/redux';
+import {confirmRegistration, reportError} from '~/store/reducers/TerminalSlice';
 
-interface confirmFrameProps {
-    userData: UserData;
-}
-export const ConfirmFrame = ({userData}: confirmFrameProps) => {
-    const {flagMismatch} = terminalSlice.actions
+export const ConfirmFrame = () => {
     const dispatch = useAppDispatch();
+    const {participant, scanId, idempotencyKey} = useAppSelector(state => state.terminalReducer);
 
-     function handleReject() {
-        dispatch(flagMismatch({
-                errorType: "uncorrectedData",
-                message: 'Данные пользователя неверны',
-                kind: "business"
-            }
-        ))
+    if (!participant || !scanId || !idempotencyKey) return null;
+
+    function handleError() {
+        if (participant && scanId) {
+            dispatch(reportError({participant_id: participant.id, scan_id: scanId}))
+        }
     }
 
-    async function handleConfirm() {
-        await dispatch(completeRegistration(userData.id))
+    function handleApprove() {
+        if (participant && scanId && idempotencyKey) {
+            dispatch(confirmRegistration({
+                data: {
+                    participant_id: participant.id,
+                    scan_id: scanId
+                }, idempotencyKey
+            }))
+        }
     }
 
     return (
-        <TerminalBlock sectionTitle={"Терминал · подтверждение данных"}>
-            <div className="participant_card">
-                <div className="label">ФИО</div>
-                <div className="value">{`${userData.lastName} ${userData.firstName} ${userData.surname || ''}`}</div>
+        <>
+            <h1 className="terminal_title">Проверьте данные</h1>
+            <p className="terminal_subtitle">Всё верно? Нажмите «Да, всё верно».</p>
 
-                <div className="label">Должность</div>
-                <div className="value">{userData.post || 'Не указано'}</div>
-
-                <div className="label">Организация</div>
-                <div className="value">{ userData.organization || 'Не указано'}</div>
-
-                <div className="card_actions">
-                    <button onClick={handleReject} className="btn btn_secondary">✕ Не верно</button>
-                    <button onClick={handleConfirm} className="btn btn_primary">✓ Всё верно</button>
+            <div className="terminal_participant">
+                <div className="terminal_participant_field">
+                    <div className="terminal_participant_label">ФИО</div>
+                    <div className="terminal_participant_value">{participant.full_name}</div>
+                </div>
+                <div className="terminal_participant_field">
+                    <div className="terminal_participant_label">Должность</div>
+                    <div className="terminal_participant_value">{participant.position}</div>
+                </div>
+                <div className="terminal_participant_field">
+                    <div className="terminal_participant_label">Организация</div>
+                    <div className="terminal_participant_value">{participant.organization}</div>
                 </div>
             </div>
-        </TerminalBlock>
+
+            <div className="terminal_actions">
+                <button className="btn btn_secondary" onClick={handleError}>
+                    Есть ошибка
+                </button>
+                <button className="btn btn_primary" onClick={handleApprove}>
+                    Да, всё верно
+                </button>
+            </div>
+        </>
     );
 };

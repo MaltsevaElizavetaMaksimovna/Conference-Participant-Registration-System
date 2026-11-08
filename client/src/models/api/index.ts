@@ -1,4 +1,3 @@
-// ~/models/api/index.ts
 import type { components } from '~/services/types/api';
 
 export type MeOut = components['schemas']['MeOut'];

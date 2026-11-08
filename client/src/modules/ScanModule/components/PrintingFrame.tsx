@@ -1,12 +1,15 @@
-import {TerminalBlock} from "~/components/TerminalBlock";
-import {Spinner} from "~/components/Spinner";
+import {useAppSelector} from "~/hooks/redux";
 
 export const PrintingFrame = () => {
+    const {message} = useAppSelector(state => state.terminalReducer);
+
     return (
-        <TerminalBlock sectionTitle={"Терминал · печать наклейки"}>
-            <Spinner/>
-            <h2>Печатается наклейка…</h2>
-            <p>Подождите, это займёт пару секунд</p>
-        </TerminalBlock>
+        <>
+            <div className="terminal_spinner"/>
+            <h1 className="terminal_title">Печатается наклейка</h1>
+            <p className="terminal_subtitle">
+                {message || 'Заберите наклейку и подойдите к стойке регистрации'}
+            </p>
+        </>
     );
 };

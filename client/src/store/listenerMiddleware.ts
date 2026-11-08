@@ -4,4 +4,7 @@ import type {AppDispatch, RootState} from "~/store/store";
 
 export const listenerMiddleware = createListenerMiddleware()
 
-export const startAppListening = listenerMiddleware.startListening.withTypes<RootState, AppDispatch>()
+export const startAppListening = listenerMiddleware.startListening.withTypes<
+    RootState,
+    AppDispatch
+>()

@@ -141,6 +141,9 @@ export const terminalSlice = createSlice({
     name: 'terminal',
     initialState,
     reducers: {
+        terminalMounted() {
+
+        },
         resetToIdle(state) {
             state.screen = 'idle';
             state.message = null;
@@ -179,14 +182,14 @@ export const terminalSlice = createSlice({
     extraReducers: (builder) => {
 
         builder.addCase(pingTerminal.rejected, (state, action) => {
-            state.pingFailures += 1
-            if (state.pingFailures >= 2) {
-                state.connection = 'offline'
-            }
+            state.pingFailures += 1;
+            const code = action.payload?.code;
 
-            if (action.payload?.code === 'terminal_disabled') {
-                state.connection = 'disabled'
-                state.message = action.payload.message
+            if (code === 'terminal_disabled' || code === 'invalid_device_token' || code === 'not_found') {
+                state.connection = 'disabled';
+                state.message = action.payload?.message ?? 'Терминал недоступен';
+            } else if (state.pingFailures >= 2) {
+                state.connection = 'offline';
             }
         })
         builder.addCase(pingTerminal.fulfilled, (state, action) => {
@@ -280,7 +283,8 @@ export const {
     setTerminalDisabled,
     showResult,
     showConfirmScreen,
-    clearError
+    clearError,
+    terminalMounted
 } = terminalSlice.actions
 
 export const terminalReducer = terminalSlice.reducer;
