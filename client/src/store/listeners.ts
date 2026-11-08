@@ -17,7 +17,6 @@ export function registerListeners() {
 
             while (true) {
                 await api.delay(3000);
-
                 const state = api.getState().terminalReducer;
 
                 if (state.connection === 'disabled') {

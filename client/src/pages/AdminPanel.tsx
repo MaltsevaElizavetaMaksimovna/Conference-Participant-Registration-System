@@ -7,35 +7,33 @@ import {
     setFilters,
     setSelected,
 } from '~/store/reducers/AdminSlice';
-import {useNavigate} from "react-router";
-import {normalizeYo} from "~/utils/NormalizeYo";
+import {useLocation, useNavigate} from "react-router";
 import {ParticipantCardModal} from "~/modules/AdminModule/components/modals/ParticipantCardModal";
 import {AddParticipantModal} from "~/modules/AdminModule/components/modals/AddParticipantModal";
+import {matchesSearch} from "~/utils/SearchUtil";
 
 
 export const AdminPanel = () => {
     const dispatch = useAppDispatch();
     const navigate = useNavigate();
+    const location = useLocation();
+
 
     const user = useAppSelector(state => state.authReducer.user);
     const {participants, listStatus, filters, stats} = useAppSelector(state => state.adminReducer);
 
     const selectedParticipant = useAppSelector(state => state.adminReducer.selected);
     const actionStatus = useAppSelector(state => state.adminReducer.actionStatus);
+    const {active: activeConference} = useAppSelector(state => state.conferenceReducer)
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     // useEffect(() => {
-    //     dispatch(fetchParticipants());
-    //     dispatch(fetchParticipantsStats());
-    // }, [dispatch, filters]);
-    //
-    // useEffect(() => {
-    //     if (actionStatus === 'success') {
-    //         dispatch(fetchParticipantsStats());
+    //     if (activeConference) {
     //         dispatch(fetchParticipants());
+    //         dispatch(fetchParticipantsStats());
     //     }
-    // }, [actionStatus, dispatch]);
+    // }, [dispatch, activeConference, filters]);
 
     const handleLogout = async () => {
         await dispatch(logout());
@@ -51,19 +49,25 @@ export const AdminPanel = () => {
     };
 
     const displayedParticipants = useMemo(() => {
-        if (!filters.q) return participants;
-        const query = normalizeYo(filters.q);
-        return participants.filter(p => normalizeYo(p.full_name).includes(query));
-    }, [participants, filters.q]);
+        return participants.filter(p => {
+            const matchesQuery = matchesSearch(p.full_name, filters.q);
+            if (!matchesQuery) return false;
+
+            if (filters.filter === 'registered') {
+                return p.status === 'registered' || p.status === 'registered_no_sticker';
+            }
+            if (filters.filter === 'not_registered') {
+                return p.status === 'not_registered';
+            }
+            if (filters.filter === 'flagged') {
+                return p.flags && p.flags.length > 0;
+            }
+            return true;
+        });
+    }, [participants, filters.q, filters.filter]);
 
     return (
-        <div className="admin_layout">
-            <aside className="admin_sidebar">
-                <div className="admin_logo">ТПУ · Регистрация</div>
-                <div className="nav_item active">Участники</div>
-                {/* Остальные вкладки можно добавить позже */}
-            </aside>
-
+        <>
             <main className="admin_main">
                 <header className="admin_header">
                     <h1>Участники</h1>
@@ -169,6 +173,6 @@ export const AdminPanel = () => {
 
             {selectedParticipant && <ParticipantCardModal/>}
             {isAddModalOpen && <AddParticipantModal onClose={() => setIsAddModalOpen(false)}/>}
-        </div>
+        </>
     );
 };

@@ -1,4 +1,4 @@
-import axios, {type AxiosInstance} from 'axios';
+import {type AxiosInstance} from 'axios';
 import axiosRetry from 'axios-retry';
 
 export const BASE_URL = '/api';

@@ -67,10 +67,27 @@ export const fetchActiveConference = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'conference/fetchActiveConference',
+    // async (_, {rejectWithValue}) => {
+    //     try {
+    //         const response = await ConferenceService.getActive()
+    //         return response.data
+    //     } catch (e) {
+    //         return rejectWithValue(parseError(e));
+    //     }
+    // }
     async (_, {rejectWithValue}) => {
         try {
-            const response = await ConferenceService.getActive()
-            return response.data
+            // 🟢 МОК: Имитация задержки сети
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Возвращаем тестовую конференцию
+            return {
+                id: 1,
+                title: 'Тестовая конференция 2026',
+                date_from: '2026-11-20',
+                date_to: '2026-11-21',
+                badge_type: 'single',
+            };
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
@@ -251,7 +268,7 @@ export const conferenceSlice = createSlice({
             const idx = state.list.findIndex((c) => c.id === updated.id)
             if (idx !== -1) state.list[idx] = updated
 
-            if(state.selected?.id === updated.id) {
+            if (state.selected?.id === updated.id) {
                 state.selected = updated
             }
 

@@ -1,10 +1,11 @@
 import {ConfirmFrame, LoadingFrame, PrintingFrame, ScanFrame} from "~/modules/ScanModule";
 import {useAppDispatch, useAppSelector} from "~/hooks/redux";
 import {useEffect} from "react";
-import {pingTerminal, terminalMounted} from "~/store/reducers/TerminalSlice";
+import { terminalMounted} from "~/store/reducers/TerminalSlice";
 import {SuccessFrame} from "~/modules/ScanModule/components/SuccessFrame";
 import {ErrorFrame} from "~/modules/ScanModule/components/ErrorFrame";
 import {OfflineFrame} from "~/modules/ScanModule/components/OfflineFrame";
+import {DisabledFrame} from "~/modules/ScanModule/components/DisabledFrame";
 
 
 export const UserPanel = () => {
@@ -17,6 +18,9 @@ export const UserPanel = () => {
     const renderContent = () => {
         if (connection === 'offline') {
             return <OfflineFrame/>;
+        }
+        if (connection === 'disabled') {
+            return <DisabledFrame/>;
         }
 
         switch (screen) {

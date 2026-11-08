@@ -5,6 +5,8 @@ import {listenerMiddleware} from "~/store/listenerMiddleware";
 import {conferenceReducer} from "~/store/reducers/ConferenceSlice";
 import {authReducer} from "~/store/reducers/AuthSlice";
 import {registerListeners} from "~/store/listeners";
+import {importReducer} from "~/store/reducers/ImportSlice";
+import {settingsReducer} from "~/store/reducers/SettingsSlice";
 
 registerListeners()
 
@@ -14,6 +16,8 @@ export const store = configureStore({
         adminReducer: adminReducer,
         conferenceReducer: conferenceReducer,
         authReducer: authReducer,
+        importReducer: importReducer,
+        settingsReducer: settingsReducer,
     },
     middleware: (getDefaultMiddleware) =>
         getDefaultMiddleware().prepend(listenerMiddleware.middleware)

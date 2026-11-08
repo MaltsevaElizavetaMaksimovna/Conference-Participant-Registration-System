@@ -135,13 +135,19 @@ export const fetchParticipants = createAsyncThunk<
     //         return rejectWithValue(parseError(e));
     //     }
     // }
-    async (_, { rejectWithValue }) => {
+    async (_, {rejectWithValue}) => {
         // МОК
         await new Promise(r => setTimeout(r, 500));
         return {
             items: [
-                { id: 1, full_name: 'Иванов Иван Иванович', organization: 'ТПУ', status: 'registered', flags: [] },
-                { id: 2, full_name: 'Петрова Анна Сергеевна', organization: 'ООО Ромашка', status: 'not_registered', flags: [] },
+                {id: 1, full_name: 'Иванов Иван Иванович', organization: 'ТПУ', status: 'registered', flags: []},
+                {
+                    id: 2,
+                    full_name: 'Петрова Анна Сергеевна',
+                    organization: 'ООО Ромашка',
+                    status: 'not_registered',
+                    flags: []
+                },
             ],
             total: 2
         };
@@ -170,10 +176,108 @@ export const fetchParticipantById = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'admin/fetchParticipantById',
+    // async (id, {rejectWithValue}) => {
+    //     try {
+    //         const response = await ParticipantService.getById(id);
+    //         return response.data
+    //     } catch (e) {
+    //         return rejectWithValue(parseError(e));
+    //     }
+    // }
     async (id, {rejectWithValue}) => {
         try {
-            const response = await ParticipantService.getById(id);
-            return response.data
+            // 🟢 МОК: Имитация задержки
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // Базовый шаблон карточки
+            const baseCard: ParticipantCard = {
+                id,
+                external_id: `B24-${1000 + id}`,
+                last_name: 'Иванов',
+                first_name: 'Иван',
+                middle_name: 'Иванович',
+                position: 'Студент',
+                organization: 'ТПУ, ИШИТР',
+                extra: [],
+                status: 'registered',
+                registration: {
+                    at: new Date(Date.now() - 3600000).toISOString(),
+                    source: 'terminal',
+                    terminal_name: 'Терминал 1',
+                    user_login: null,
+                },
+                flags: [],
+                photo_url: null,
+                profile_url: null,
+                print_count: 1,
+                rescan_count: 0,
+                history: [],
+                events: [],
+                actions: {
+                    can_register: false,
+                    can_reprint: true,
+                    can_edit: true,
+                    can_foreign_code: true,
+                    reasons: {},
+                },
+            };
+
+            if (id === 2) {
+                return {
+                    ...baseCard,
+                    status: 'not_registered',
+                    registration: null,
+                    print_count: 0,
+                    actions: {
+                        can_register: true,
+                        can_reprint: false,
+                        can_edit: true,
+                        can_foreign_code: false,
+                        reasons: {},
+                    },
+                };
+            }
+
+            if (id === 3) {
+                return {
+                    ...baseCard,
+                    status: 'registered_no_sticker',
+                    flags: [
+                        {code: 'manual_added', at: new Date().toISOString(), by: 'admin'},
+                        {code: 'sticker_not_printed', at: new Date().toISOString(), by: 'admin'}
+                    ],
+                    actions: {
+                        can_register: false,
+                        can_reprint: true,
+                        can_edit: true,
+                        can_foreign_code: false,
+                        reasons: {},
+                    },
+                };
+            }
+
+            if (id === 4) {
+                return {
+                    ...baseCard,
+                    flags: [
+                        {code: 'data_changed', at: new Date().toISOString(), by: 'admin'},
+                        {code: 'error_reported', at: new Date().toISOString(), by: null}
+                    ],
+                    history: [
+                        {
+                            field: 'organization',
+                            old: 'ТГУ',
+                            new: 'ТПУ',
+                            source: 'manual',
+                            user_login: 'admin',
+                            at: new Date().toISOString()
+                        }
+                    ]
+                };
+            }
+
+            // Для всех остальных (id 1, 5 и т.д.) — обычный зарегистрированный
+            return baseCard;
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
@@ -218,13 +322,20 @@ export const checkDuplicates = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'admin/checkDuplicates',
-    async (data, {rejectWithValue}) => {
-        try {
-            const response = await ParticipantService.checkDuplicates(data);
-            return response.data
-        } catch (e) {
-            return rejectWithValue(parseError(e));
-        }
+    // async (data, {rejectWithValue}) => {
+    //     try {
+    //         const response = await ParticipantService.checkDuplicates(data);
+    //         return response.data
+    //     } catch (e) {
+    //         return rejectWithValue(parseError(e));
+    //     }
+    // }
+    async ({last_name, first_name}) => {
+        // МОК: ищем хотя бы одно совпадение по фамилии
+        const found = MOCK_PARTICIPANTS.filter(p =>
+            p.full_name.toLowerCase().includes(last_name.toLowerCase())
+        );
+        return {items: found};
     }
 )
 

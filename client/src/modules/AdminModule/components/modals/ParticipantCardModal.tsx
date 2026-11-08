@@ -11,6 +11,9 @@ import {
 export const ParticipantCardModal = () => {
     const dispatch = useAppDispatch();
     const {selected: participant} = useAppSelector(state => state.adminReducer);
+
+    const selectedStatus = useAppSelector(state => state.adminReducer.selectedStatus);
+
     const [isEditing, setIsEditing] = useState(false);
     const [formData, setFormData] = useState({
         last_name: '',
@@ -20,12 +23,14 @@ export const ParticipantCardModal = () => {
         organization: '',
     });
 
-    // useEffect(() => {
-    //     if (participant?.id) {
-    //         dispatch(fetchParticipantById(participant.id));
-    //     }
-    // }, [dispatch, participant?.id]);
+    // Запрос полных данных
+    useEffect(() => {
+        if (participant?.id) {
+            dispatch(fetchParticipantById(participant.id));
+        }
+    }, [dispatch, participant?.id]);
 
+    // Синхронизация формы при загрузке данных
     useEffect(() => {
         if (participant) {
             setFormData({
@@ -39,6 +44,18 @@ export const ParticipantCardModal = () => {
     }, [participant]);
 
     if (!participant) return null;
+
+    if (selectedStatus === 'loading' || !participant.actions) {
+        return (
+            <div className="add_user_modal_container" onClick={() => dispatch(clearSelected())}>
+                <div className="add_user_modal" onClick={e => e.stopPropagation()}
+                     style={{padding: '40px', textAlign: 'center'}}>
+                    <div className="terminal_spinner" style={{margin: '0 auto 20px'}}/>
+                    <p>Загрузка карточки участника...</p>
+                </div>
+            </div>
+        );
+    }
 
     const {actions, status, registration, history, print_count, rescan_count, flags} = participant;
 
@@ -140,6 +157,7 @@ export const ParticipantCardModal = () => {
                         </div>
                     )}
 
+                    {/* Флаги (пометки) */}
                     {flags.length > 0 && (
                         <div style={{marginBottom: '24px'}}>
                             <strong style={{display: 'block', marginBottom: '8px'}}>Пометки:</strong>
