@@ -62,3 +62,39 @@ bash scripts/verify.sh      # ruff, mypy, pytest
 ```
 
 Тесты сами поднимают временный PostgreSQL, отдельная база не нужна.
+
+# Фронтэнд системы регистрации участников конференции
+
+## Стек
+
+    React, Redux Toolkit, Typescript, React Router, Axios, React QR Scanner.
+
+## Структура
+
+```
+client/src
+  api/          конфигурация Axios
+  assets/   
+  components/    
+  config/        константы
+  hooks/        хуки для redux
+  models/        модели данных
+  modules/        модули приложения
+  pages/        страницы приложения
+  services/        сервисы для взаимодействия с API
+  store/        хранилище redux
+  styles/        стили
+  utils/        утилиты
+  main.tsx      стартовая точка приложения с роутингом
+```
+
+## Запуск
+1. Убедитесь, что у вас установлен Node.js (версия 18 или выше).
+2. Установите зависимости:
+    ``` 
+   npm install
+   ```
+3. Запустите dev-сервер:
+    ```
+   npm start
+   ```

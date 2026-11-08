@@ -1,0 +1,4 @@
+export const AUTO_RESET_TIMEOUT = 60_000;
+export const FINISH_OR_ERROR_RESET_TIMEOUT = 10_000;
+
+
