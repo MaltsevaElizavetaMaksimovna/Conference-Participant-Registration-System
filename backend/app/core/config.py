@@ -1,0 +1,127 @@
+"""Настройки приложения из переменных окружения с префиксом RS_."""
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
+
+from pydantic import SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+DEFAULT_SECRET_KEY = "dev-secret-change-me"
+# backend/.data/photos: рядом с пакетом `app`, а не относительно текущего каталога процесса
+DEFAULT_PHOTO_DIR = Path(__file__).resolve().parents[2] / ".data" / "photos"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="RS_", env_file=".env", extra="ignore")
+
+    env: Literal["dev", "test", "prod"] = "dev"
+    database_url: str = "postgresql+psycopg://postgres@127.0.0.1:5432/regsys"
+    db_connect_timeout_s: int = 5
+    secret_key: str = DEFAULT_SECRET_KEY
+    # Список через запятую: RS_CORS_ORIGINS=http://localhost:5173,https://reg.example.ru
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    # Каталог фото участников; `participant.photo_path` в БД — путь относительно него (B2-13)
+    photo_dir: Path = DEFAULT_PHOTO_DIR
+    # Первый администратор: создаётся командой `python -m app.cli bootstrap`, если сотрудников нет
+    bootstrap_admin_login: str | None = None
+    bootstrap_admin_password: str | None = None
+
+    # --- «Числа со звёздочкой» из требований (В-13): не зашиваем в код ---
+    session_ttl_hours: int = 12  # срок сессии сотрудника
+    terminal_idle_timeout_s: int = 60  # возврат терминала на экран ожидания
+    result_screen_s: int = 10  # сколько показывать экран результата
+    scan_response_timeout_s: int = 2  # ответ на скан, NF-01
+    print_start_timeout_s: int = 3  # печать должна начаться, NF-01
+    panel_refresh_s: int = 5  # обновление счётчика в панели, NF-01
+    search_timeout_s: int = 1  # ответ поиска по ФИО, NF-01
+    search_min_chars: int = 2  # поиск начинается с N символов, RG-02
+    duplicate_similarity: float = 0.8  # похожесть фамилии и имени для «возможного дубля», RG-07
+    duplicate_limit: int = 10  # сколько возможных дублей показывать, RG-07
+    terminal_fail_threshold: int = 3  # «Нет связи с сервером» после N неудач подряд
+    long_poll_timeout_s: int = 25  # long-poll агента печати
+    print_confirm_timeout_s: int = 30  # агент не подтвердил задание -> error
+    # Агент не забрал задание за N с (принтер или агент выключен) -> error; позже не печатаем
+    print_pending_timeout_s: int = 30
+    print_poll_interval_s: float = 0.5  # как часто long-poll агента проверяет очередь
+    print_sweep_interval_s: float = 5  # как часто сервер помечает просроченные задания
+    sse_keepalive_s: int = 15
+    # Фото по ссылке при импорте (B1-06): лимиты скачивания и обработки
+    photo_max_mb: int = 5
+    photo_timeout_s: int = 10
+    photo_max_redirects: int = 3
+    photo_workers: int = 4  # одновременных скачиваний на процесс
+    photo_max_pixels: int = 40_000_000  # защита от «картинки-бомбы»
+    photo_max_side_px: int = 1200
+    photo_jpeg_quality: int = 85
+
+    # Резервное копирование (B1-14, NF-05)
+    backup_dir: Path = Path(__file__).resolve().parents[2] / ".data" / "backups"
+    # Второй носитель (флешка, сетевой диск); None — не копировать
+    backup_mirror_dir: Path | None = None
+    backup_interval_min: int = 30  # NF-05
+    backup_keep: int = 48  # сколько последних копий хранить (сутки при 30 мин)
+    # Каталог с pg_dump/pg_restore; None — PATH, затем бинарники pgserver
+    pg_bin_dir: Path | None = None
+    login_rate_limit_per_min: int = 10
+    # Ограничение перебора пароля: N неудач на (ip, логин) за окно, затем 429
+    login_max_failures: int = 10
+    login_fail_window_s: int = 300
+    # Публичный профиль по QR (B2-13): не больше N запросов за окно с одного IP, затем 429
+    public_profile_rate_limit: int = 60
+    public_profile_rate_window_s: int = 60
+    import_max_file_mb: int = 10
+    import_max_rows: int = 5000
+    # Терминалы и принтеры (B2-01)
+    device_last_seen_throttle_s: int = 10  # last_seen_at терминала пишем не чаще раза в N с
+    printer_online_timeout_s: int = 30  # принтер «на связи», если heartbeat не старше N с
+    # Шаблоны наклеек (B2-07): элемент ближе N мм к краю — предупреждение (принтер обрезает край)
+    template_safe_margin_mm: float = 3
+
+    # --- Сканирование QR (B2-02) ---
+    # Регулярка для извлечения ID участника из ссылки приглашения (первая группа = ID).
+    # Формат реальных приглашений пока неизвестен (В-04); переопределяется у конференции
+    # (`conference.invite_id_regex`). Пусто — разбор по умолчанию (query-параметр или путь).
+    invite_id_regex: str | None = None
+    # Публичный адрес системы (ссылка на наклейке: `<адрес>/p/<token>`). Нужен, чтобы узнать
+    # QR с наклейки и не принять его за приглашение.
+    public_base_url: str | None = None
+
+    # --- Битрикс24 (IM-04) ---
+    # URL входящего вебхука содержит секрет: задаётся только в окружении, через API не
+    # передаётся и не отдаётся; фронту известно лишь, настроен ли он (`webhook_configured`).
+    bitrix_webhook_url: SecretStr | None = None
+
+    # --- Регистрация на терминале (B2-03..05) ---
+    # Часовой пояс мероприятия: в нём показывается время регистрации в сообщениях терминала
+    timezone: str = "Asia/Tomsk"
+    # Запас к сроку жизни `scan_id` сверх `terminal_idle_timeout_s`
+    scan_id_grace_s: int = 30
+
+    @field_validator("timezone")
+    @classmethod
+    def _check_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except Exception as e:  # ZoneInfoNotFoundError, ValueError (некорректный ключ)
+            raise ValueError(f"Неизвестный часовой пояс: {v!r}") from e
+        return v
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [s.strip() for s in v.split(",") if s.strip()]
+        return v
+
+    @model_validator(mode="after")
+    def _check_prod(self) -> "Settings":
+        if self.env == "prod" and self.secret_key == DEFAULT_SECRET_KEY:
+            raise ValueError("RS_SECRET_KEY должен быть задан в prod")
+        return self
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Локальная БД и окружение
+.devdb/
+.env
+
+# Агент печати и спайки
+agent/dist/
+agent/build/
+*.prn
+spike_out/
+
+# ОС / редакторы
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Фото участников (RS_PHOTO_DIR по умолчанию)
+backend/.data/
