@@ -62,6 +62,18 @@ bash scripts/verify.sh      # ruff, mypy, pytest
 ```
 
 Тесты сами поднимают временный PostgreSQL, отдельная база не нужна.
+Если `pgserver` не запускается в Windows, укажите URL отдельной тестовой базы в `RS_DATABASE_URL`.
+
+Из каталога `backend` после установки `.[dev]`:
+
+```powershell
+# SIS-25: поиск участника по коду приглашения
+python -m pytest -q tests/test_terminal_scan.py::test_found_shows_print_spelling
+# SIS-27: 10 параллельных подтверждений, 20 раундов
+python -m pytest -q 'tests/test_registration_concurrency.py::test_parallel_confirms_from_two_terminals_over_http[10]'
+```
+
+Для проверки на стенде: [чек-лист принтера XP-360B](agent/spike/QA-checklist.md).
 
 # Фронтэнд системы регистрации участников конференции
 
