@@ -3,12 +3,15 @@
 import os
 import subprocess
 import time
+import uuid
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import psycopg
 import pytest
+from psycopg import sql
 from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
@@ -118,14 +121,34 @@ def test_make_backup_nonexistent_db(database_url: str, tmp_path: Path) -> None:
         assert tmps == []
 
 
+@pytest.fixture
+def backup_auth_url(database_url: str) -> Iterator[str]:
+    """A dedicated test role works with both trust and password authentication."""
+    role = f"backup_auth_{uuid.uuid4().hex[:8]}"
+    with psycopg.connect(_admin_conninfo(database_url), autocommit=True) as conn:
+        conn.execute(
+            sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
+                sql.Identifier(role), sql.Literal("secret-pass-123")
+            )
+        )
+        try:
+            conn.execute(sql.SQL("GRANT pg_read_all_data TO {}").format(sql.Identifier(role)))
+            yield (
+                make_url(database_url)
+                .set(username=role, password="secret-pass-123")
+                .render_as_string(hide_password=False)
+            )
+        finally:
+            conn.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
+
+
 def test_password_not_in_args_and_env(
-    database_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    backup_auth_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Пароль передаётся только через PGPASSWORD и отсутствует в args и текстах ошибок."""
     secret = "secret-pass-123"
-    auth_url = make_url(database_url).set(password=secret).render_as_string(hide_password=False)
     settings = Settings(
-        database_url=auth_url,
+        database_url=backup_auth_url,
         backup_dir=tmp_path / "b",
         photo_dir=tmp_path / "photos",
         backup_keep=3,
@@ -152,7 +175,7 @@ def test_password_not_in_args_and_env(
 
     # Проверка, что текст BackupError при ошибке не содержит secret
     bad_url = (
-        make_url(database_url)
+        make_url(backup_auth_url)
         .set(database="no_such_db", password=secret)
         .render_as_string(hide_password=False)
     )

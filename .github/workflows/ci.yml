@@ -27,6 +27,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: regsys_test
+          POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C.UTF-8'
         ports:
           - 5432:5432
         options: >-
