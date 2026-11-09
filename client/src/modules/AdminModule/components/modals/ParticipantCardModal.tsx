@@ -81,7 +81,7 @@ export const ParticipantCardModal = () => {
                 <div style={{padding: '24px'}}>
                     <div style={{display: 'flex', gap: '24px', marginBottom: '24px'}}>
                         {participant.photo_url ? (
-                            <img src={`http://localhost:8000${participant.photo_url}`} alt="Фото"
+                            <img src={participant.photo_url} alt="Фото"
                                  style={{width: '120px', height: '160px', objectFit: 'cover', borderRadius: '8px'}}/>
                         ) : (
                             <div style={{

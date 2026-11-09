@@ -1,9 +1,25 @@
+x-api-common: &api-common
+  image: regsys-api:local
+  build: ./backend
+  environment: &api-environment
+    RS_ENV: ${RS_ENV:-dev}
+    RS_DATABASE_URL: postgresql+psycopg://regsys:${POSTGRES_PASSWORD:?Run python scripts/configure_env.py}@db:5432/regsys
+    RS_SECRET_KEY: ${RS_SECRET_KEY:?Run python scripts/configure_env.py}
+    RS_CORS_ORIGINS: ${RS_CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+    RS_PUBLIC_BASE_URL: ${RS_PUBLIC_BASE_URL:-http://localhost:8080}
+    RS_PHOTO_DIR: /srv/.data/photos
+    RS_PG_BIN_DIR: /usr/lib/postgresql/16/bin
+  volumes:
+    - photos:/srv/.data/photos
+  networks: [database, application]
+
 services:
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: regsys
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-regsys}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run python scripts/configure_env.py}
       POSTGRES_DB: regsys
       # В официальном образе (Debian) из UTF-8 локалей есть только C.UTF-8 и en_US.UTF-8;
       # ru_RU.UTF-8 без доп. пакетов нет. C.UTF-8 даёт кодировку UTF-8, lower() для
@@ -11,24 +27,68 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks: [database]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U regsys -d regsys"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
-  api:
-    build: ./backend
-    environment:
-      RS_ENV: ${RS_ENV:-dev}
-      RS_DATABASE_URL: postgresql+psycopg://regsys:${POSTGRES_PASSWORD:-regsys}@db:5432/regsys
-      RS_SECRET_KEY: ${RS_SECRET_KEY:-dev-secret-change-me}
-      RS_CORS_ORIGINS: ${RS_CORS_ORIGINS:-http://localhost:5173}
-    ports:
-      - "8000:8000"
+  migrate:
+    <<: *api-common
+    command: [python, -m, app.cli, migrate]
+    healthcheck:
+      disable: true
     depends_on:
       db:
         condition: service_healthy
 
+  api:
+    <<: *api-common
+    restart: unless-stopped
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./client
+    restart: unless-stopped
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+    networks: [application]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  backups:
+    <<: *api-common
+    profiles: [ops]
+    restart: unless-stopped
+    command: [python, scripts/backup.py, loop]
+    environment:
+      <<: *api-environment
+      RS_BACKUP_DIR: /srv/.data/backups
+      RS_BACKUP_INTERVAL_MIN: ${RS_BACKUP_INTERVAL_MIN:-30}
+      RS_BACKUP_KEEP: ${RS_BACKUP_KEEP:-48}
+    volumes:
+      - photos:/srv/.data/photos:ro
+      - backups:/srv/.data/backups
+    healthcheck:
+      disable: true
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  photos:
+  backups:
+
+networks:
+  database:
+    internal: true
+  application:
