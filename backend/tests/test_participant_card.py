@@ -97,12 +97,30 @@ async def test_not_registered_and_registered_actions(login_as: LoginAs, db: Asyn
     assert card_unreg["status"] == "not_registered"
     assert card_unreg["registration"] is None
     assert card_unreg["actions"]["can_register"] is True
+    assert card_unreg["actions"]["can_reprint"] is False
+    assert card_unreg["actions"]["reasons"]["can_reprint"] == "Участник ещё не зарегистрирован"
 
     r_reg = await c.get(f"/api/participants/{reg.id}")
     assert r_reg.status_code == 200, r_reg.text
     card_reg = r_reg.json()
     assert card_reg["actions"]["can_register"] is False
     assert "Уже зарегистрирован" in card_reg["actions"]["reasons"]["can_register"]
+
+    assert card_reg["actions"]["can_reprint"] is False
+    assert card_reg["actions"]["reasons"]["can_reprint"] == "Нет права печатать наклейки"
+    denied = await c.post(f"/api/participants/{reg.id}/reprint")
+    assert denied.status_code == 403
+    assert denied.json()["details"]["missing"] == ["stickers.print"]
+
+    printer_user = await login_as("participants.view", "stickers.print")
+    printable = await printer_user.get(f"/api/participants/{reg.id}")
+    assert printable.status_code == 200
+    assert printable.json()["actions"]["can_reprint"] is True
+
+    not_registered = await printer_user.post(f"/api/participants/{unreg.id}/reprint")
+    assert not_registered.status_code == 409
+    assert not_registered.json()["code"] == "not_registered"
+    assert not_registered.json()["message"] == card_unreg["actions"]["reasons"]["can_reprint"]
 
 
 # 4. Регистрация со стойки: логин сотрудника и terminal_name is None

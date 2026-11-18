@@ -35,7 +35,7 @@ def card_actions(
 
     can_reprint = registration is not None and badges and staff.has(Permission.STICKERS_PRINT)
     if registration is None:
-        reasons["can_reprint"] = "Сначала зарегистрируйте участника"
+        reasons["can_reprint"] = "Участник ещё не зарегистрирован"
     elif not badges:
         reasons["can_reprint"] = "Конференция проходит без бейджей"
     elif not can_reprint:

@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 log = logging.getLogger("app.errors")
 
@@ -90,13 +91,41 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     return error_response(e.status_code, code, message, headers=headers)
 
 
-async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-    log.exception("Необработанное исключение: %s %s", request.method, request.url.path)
-    return error_response(500, "internal_error", "Внутренняя ошибка сервера")
+class _UnhandledHttpErrors:
+    """Пишет безопасную диагностику до передачи ошибки ASGI-серверу."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        started = False
+
+        async def track_start(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, track_start)
+        except Exception as exc:
+            route = getattr(scope.get("route"), "path", "<unknown>")
+            log.error(
+                "Необработанное исключение: %s %s (%s)", scope["method"], route, type(exc).__name__
+            )
+            if started:
+                # Поток уже начался: сервер должен закрыть соединение.
+                raise RuntimeError("Ошибка после начала HTTP-ответа") from None
+            response = error_response(500, "internal_error", "Внутренняя ошибка сервера")
+            await response(scope, receive, send)
 
 
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AppError, _app_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(StarletteHTTPException, _http_error)
-    app.add_exception_handler(Exception, _unhandled)
+    app.add_middleware(_UnhandledHttpErrors)

@@ -67,8 +67,10 @@ class PhotoWorker:
                 await finish_batch_photos(s, batch_id, loaded=loaded, failed_rows=failed_rows)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            log.exception("Ошибка при завершении загрузки фото для партии %s", batch_id)
+        except Exception as exc:
+            log.error(
+                "Ошибка завершения загрузки фото для партии %s (%s)", batch_id, type(exc).__name__
+            )
 
     async def _one(self, job: PhotoJob) -> bool | None:
         async with self._semaphore:
@@ -104,10 +106,11 @@ class PhotoWorker:
                 return False
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                log.exception(
-                    "Непредвиденная ошибка при загрузке фото участника %s",
+            except Exception as exc:
+                log.error(
+                    "Непредвиденная ошибка при загрузке фото участника %s (%s)",
                     job.participant_id,
+                    type(exc).__name__,
                 )
                 return False
 

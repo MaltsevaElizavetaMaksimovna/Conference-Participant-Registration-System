@@ -135,7 +135,12 @@ async def import_file(
         report.report = _report_json(outcome)
         await session.commit()
     except Exception as e:
-        log.exception("Импорт %s конференции %s завершился ошибкой", batch_id, conference_id)
+        log.error(
+            "Импорт %s конференции %s завершился ошибкой (%s)",
+            batch_id,
+            conference_id,
+            type(e).__name__,
+        )
         await session.rollback()
         failed = await session.get(ImportBatch, batch_id, populate_existing=True)
         if failed is not None:

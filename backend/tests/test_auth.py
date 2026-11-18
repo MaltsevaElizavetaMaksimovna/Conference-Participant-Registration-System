@@ -97,14 +97,22 @@ async def test_session_ttl_comes_from_settings(
 
 
 async def test_cookie_is_secure_in_prod(
-    anon: httpx.AsyncClient, app_db: FastAPI, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    app_db: FastAPI, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await _make_user(db)
     monkeypatch.setattr(app_db.state.settings, "env", "prod")
-    r = await anon.post(
-        "/api/auth/login", json={"login": "reg.one", "password": "correct-password"}
-    )
-    assert "Secure" in r.headers["set-cookie"]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_db), base_url="https://test"
+    ) as client:
+        r = await client.post(
+            "/api/auth/login", json={"login": "reg.one", "password": "correct-password"}
+        )
+        assert r.status_code == 200
+        assert {"Secure", "HttpOnly", "SameSite=lax"} <= set(r.headers["set-cookie"].split("; "))
+        assert (await client.get("/api/auth/me")).status_code == 200
+        r = await client.post("/api/auth/logout", headers={"X-Requested-With": "rs"})
+        assert r.status_code == 204
+        assert (await client.get("/api/auth/me")).status_code == 401
 
 
 @pytest.mark.parametrize(
