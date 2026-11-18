@@ -1,0 +1,89 @@
+name: regsys-prod
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: regsys
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: regsys
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U regsys -d regsys"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      RS_ENV: prod
+      RS_DATABASE_URL: postgresql+psycopg://regsys:${POSTGRES_PASSWORD_URI:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}@db:5432/regsys
+      RS_SECRET_KEY: ${RS_SECRET_KEY:?Set RS_SECRET_KEY}
+      RS_PUBLIC_BASE_URL: https://${RS_PUBLIC_HOST:?Set RS_PUBLIC_HOST}
+      RS_CORS_ORIGINS: https://${RS_PUBLIC_HOST:?Set RS_PUBLIC_HOST}
+      RS_PHOTO_DIR: /home/app/photos
+      RS_BACKUP_DIR: /home/app/backups
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${RS_PROXY_IP:-172.30.240.2}
+      - --no-access-log
+    volumes:
+      - appdata:/home/app
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+      - proxy_api
+
+  edge:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      RS_PUBLIC_HOST: ${RS_PUBLIC_HOST:?Set RS_PUBLIC_HOST}
+      RS_TLS_ISSUER: ${RS_TLS_ISSUER:-internal}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      ingress:
+      proxy_api:
+        ipv4_address: ${RS_PROXY_IP:-172.30.240.2}
+
+networks:
+  backend:
+  ingress:
+  proxy_api:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${RS_PROXY_SUBNET:-172.30.240.0/28}
+
+volumes:
+  pgdata:
+  appdata:
+  caddy_data:
+  caddy_config:

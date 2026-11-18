@@ -1,0 +1,43 @@
+{
+	admin off
+	skip_install_trust
+	log {
+		exclude http.log.access http.log.error
+	}
+}
+
+https://{$RS_PUBLIC_HOST} {
+	tls {
+		issuer {$RS_TLS_ISSUER:internal}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Referrer-Policy "no-referrer"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+
+	@api path /api /api/* /health
+	handle @api {
+		reverse_proxy api:8000
+	}
+
+	root * /srv/regsys
+
+	handle /assets/* {
+		encode zstd gzip
+		file_server
+	}
+
+	@profile path /p /p/*
+	header @profile Cache-Control "no-store"
+
+	handle {
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}

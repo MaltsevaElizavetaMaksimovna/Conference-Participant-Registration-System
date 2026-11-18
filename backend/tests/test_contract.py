@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic import TypeAdapter
 
-from app.api.common import ErrorOut, PrintJobRefOut
+from app.api.common import ErrorOut
 from app.auth.deps import CurrentStaff, get_current_staff
 from app.core.permissions import Permission
 from app.imports.schemas import BitrixSettingsOut, ImportAcceptedOut
@@ -16,7 +16,6 @@ from app.participants.schemas import (
     ParticipantCard,
     ParticipantShort,
 )
-from app.registration.schemas import RegisterOut
 from app.templates.schemas import TemplateElement
 from app.terminals.deps import (
     CurrentAgent,
@@ -179,6 +178,8 @@ REAL: set[tuple[str, str]] = {
     ("POST", "/api/participants/check-duplicates"),
     ("POST", "/api/participants"),
     ("POST", "/api/participants/{}/foreign-code"),
+    ("POST", "/api/participants/{}/register"),
+    ("POST", "/api/participants/{}/reprint"),
 }
 
 
@@ -436,16 +437,6 @@ CASES: list[Case] = [
         200,
         BitrixSettingsOut,
     ),
-    # desk
-    (
-        "register",
-        "POST",
-        "/api/participants/18/register",
-        {"json": {"with_sticker": True}},
-        200,
-        RegisterOut,
-    ),
-    ("reprint", "POST", "/api/participants/17/reprint", {}, 200, PrintJobRefOut),
 ]
 
 
@@ -497,14 +488,6 @@ async def test_validation_error_format(client: httpx.AsyncClient) -> None:
 
 
 async def test_participant_scenarios(client: httpx.AsyncClient) -> None:
-    r = await client.post("/api/participants/17/register", json={"with_sticker": True})
-    err = await _assert_error(r, 409, "already_registered")
-    assert err.details["source"] == "terminal"
-    assert "registered_at" in err.details
-
-    r = await client.post("/api/participants/18/reprint")
-    await _assert_error(r, 409, "not_registered")
-
     r = await client.get("/api/participants/999")
     await _assert_error(r, 404, "participant_not_found")
 

@@ -69,8 +69,11 @@ async def register(
     with_sticker: bool,
     printer_id: int | None,
     idempotency_key: str | None = None,
+    commit: bool = True,
 ) -> RegistrationResult:
-    """Зарегистрировать участника. Транзакцию завершает сама (commit или rollback).
+    """Зарегистрировать участника.
+
+    При `commit=False` успешную транзакцию завершает вызывающий.
 
     - `source`/`terminal_id`/`user_id` — где и кем зарегистрирован (терминал или стойка).
     - `with_sticker` — нужна ли наклейка; для конференции «без бейджа» её не бывает никогда
@@ -84,7 +87,7 @@ async def register(
     первой регистрации. Нет такого участника: `404 participant_not_found`.
     """
     try:
-        return await _register(
+        result = await _register(
             session,
             participant_id,
             source=source,
@@ -94,6 +97,9 @@ async def register(
             printer_id=printer_id,
             idempotency_key=idempotency_key,
         )
+        if commit:
+            await session.commit()
+        return result
     except Exception:
         await session.rollback()
         raise
@@ -126,7 +132,6 @@ async def _register(
             stored = await session.scalar(
                 select(IdempotencyRecord.response).where(IdempotencyRecord.key == store_key)
             )
-            await session.commit()  # нечего сохранять: просто закрываем транзакцию
             if not stored:  # не должно случиться: чужая строка видна только после её COMMIT
                 raise AppError("idempotency_conflict", "Повторите запрос", 409)
             return replay_stored(stored, participant_id)
@@ -197,7 +202,6 @@ async def _register(
             .where(IdempotencyRecord.key == store_key)
             .values(response=result.to_json())
         )
-    await session.commit()
     return result
 
 
