@@ -343,17 +343,22 @@ async def test_report_is_scoped_to_the_conference(login_as: LoginAs, db: AsyncSe
 
 
 async def test_failed_import_rolls_back_everything(
-    login_as: LoginAs, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    login_as: LoginAs,
+    db: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     c, conf = await importer(login_as), await make_conference(db)
 
     async def boom(*_: Any, **__: Any) -> None:
-        raise RuntimeError("сбой в конце загрузки")
+        raise RuntimeError("https://photo.test/image.jpg?key=synthetic-photo-secret")
 
     monkeypatch.setattr(service, "_collect_missing", boom)
     r = await upload(c, conf, "p.xlsx", xlsx_bytes(people(20)))
     assert r.status_code == 500
     assert r.json()["code"] == "import_failed"
+    assert "synthetic-photo-secret" not in caplog.text
+    assert "RuntimeError" in caplog.text
     assert await count(db, Participant) == 0  # транзакция откатилась целиком
     assert await count(db, ExtraFieldDef) == 0
     batch = await db.get(ImportBatch, r.json()["details"]["batch_id"], populate_existing=True)

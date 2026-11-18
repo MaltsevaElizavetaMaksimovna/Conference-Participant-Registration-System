@@ -158,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.print_sweeper = PrintSweeper(app.state.sessionmaker, settings)
     app.state.photo_worker = PhotoWorker(app.state.sessionmaker, lambda: app.state.settings)
 
+    register_error_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -165,7 +166,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    register_error_handlers(app)
     _use_error_format_for_422(app)
 
     app.include_router(health.router)

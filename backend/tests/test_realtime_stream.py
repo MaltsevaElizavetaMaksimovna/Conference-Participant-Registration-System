@@ -10,16 +10,19 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 import psycopg
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.auth.deps import CurrentStaff, get_current_staff
+from app.auth.deps import SESSION_COOKIE, CurrentStaff
 from app.core.enums import RegSource
 from app.core.permissions import Permission
+from app.core.security import hash_password
 from app.eventlog.notify import EVENTS_CHANNEL, participant_updated_payload
+from app.models.staff import RolePermission, StaffUser
 from app.participants.editing import update_participant
 from app.realtime.hub import KEEPALIVE, EventHub, psycopg_conninfo
 from app.realtime.stream import event_stream
@@ -48,6 +51,9 @@ async def world(database_url: str) -> AsyncIterator[World]:
                         "(SELECT id FROM participant WHERE conference_id = :c)"
                     ),
                     {"c": w.conference_id},
+                )
+                await s.execute(
+                    text("DELETE FROM staff_session WHERE user_id = :id"), {"id": w.user_id}
                 )
                 await s.commit()
             await w.cleanup()
@@ -251,7 +257,7 @@ async def test_stream_starts_with_stats_then_keepalive_and_events(
 class AsgiStream:
     """Запрос к ASGI-приложению с телом по кускам; `close()` — клиент оборвал соединение."""
 
-    def __init__(self, app: FastAPI, path: str) -> None:
+    def __init__(self, app: FastAPI, path: str, cookie: str) -> None:
         self.start: dict[str, Any] = {}
         self.chunks: asyncio.Queue[bytes] = asyncio.Queue()
         self._disconnected = asyncio.Event()
@@ -265,7 +271,7 @@ class AsgiStream:
             "raw_path": path.encode(),
             "query_string": b"",
             "root_path": "",
-            "headers": [(b"host", b"test")],
+            "headers": [(b"host", b"test"), (b"cookie", cookie.encode("ascii"))],
             "client": ("127.0.0.1", 50000),
             "server": ("test", 80),
         }
@@ -293,14 +299,30 @@ class AsgiStream:
         await asyncio.wait_for(self.task, WAIT_S)
 
 
-async def test_endpoint_streams_events_until_client_disconnects(app: FastAPI, world: World) -> None:
-    async def viewer() -> CurrentStaff:
-        return staff_of(world)
+@pytest.mark.parametrize("source", [RegSource.TERMINAL, RegSource.DESK])
+async def test_endpoint_streams_events_until_client_disconnects(
+    app: FastAPI, client: httpx.AsyncClient, world: World, source: RegSource
+) -> None:
+    # Сессия и права должны быть видны независимым подключениям панели и потока.
+    password = "test-realtime-password"
+    async with world.sessionmaker() as session:
+        user = await session.get(StaffUser, world.user_id)
+        assert user is not None
+        login = user.login
+        user.password_hash = hash_password(password)
+        session.add(RolePermission(role_id=user.role_id, permission=Permission.PARTICIPANTS_VIEW))
+        if source == RegSource.DESK:
+            session.add(
+                RolePermission(role_id=user.role_id, permission=Permission.REGISTRATION_DESK)
+            )
+        await session.commit()
 
-    app.dependency_overrides[get_current_staff] = viewer
+    auth = await client.post("/api/auth/login", json={"login": login, "password": password})
+    assert auth.status_code == 200, auth.text
     hub: EventHub = app.state.event_hub
     pid = await world.new_participant()
-    stream = AsgiStream(app, "/api/events/stream")
+    cookie = f"{SESSION_COOKIE}={client.cookies[SESSION_COOKIE]}"
+    stream = AsgiStream(app, "/api/events/stream", cookie)
     try:
         assert await stream.next_event() == ("stats", {"registered": 0, "total": 1})
         headers = {k.decode(): v.decode() for k, v in stream.start["headers"]}
@@ -310,10 +332,25 @@ async def test_endpoint_streams_events_until_client_disconnects(app: FastAPI, wo
         assert headers["x-accel-buffering"] == "no"
         assert hub.subscriber_count == 1
 
-        await register_on_terminal(world, pid)
+        if source == RegSource.DESK:
+            response = await client.post(
+                f"/api/participants/{pid}/register",
+                json={"with_sticker": False},
+                headers={"X-Requested-With": "rs"},
+            )
+            assert response.status_code == 200, response.text
+            result = response.json()
+            status = "registered_no_sticker"
+            assert result["print_job_id"] is None
+            assert result["participant"]["status"] == status
+            assert result["participant"]["registration"]["user_login"] == login
+        else:
+            await register_on_terminal(world, pid)
+            status = "registered"
+
         assert await stream.next_event() == (
             "participant_updated",
-            {"id": pid, "status": "registered", "flags": []},
+            {"id": pid, "status": status, "flags": []},
         )
         assert await stream.next_event() == ("stats", {"registered": 1, "total": 1})
     finally:

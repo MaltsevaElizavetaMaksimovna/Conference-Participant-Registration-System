@@ -1,6 +1,9 @@
+from collections.abc import AsyncIterator
+
 import httpx
 import pytest
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import Settings
@@ -28,9 +31,17 @@ def _demo_routes(app: FastAPI) -> None:
     async def http_error() -> None:
         raise HTTPException(403, "Нельзя")
 
-    @router.get("/boom")
-    async def boom() -> None:
-        raise RuntimeError("секретная деталь стека")
+    @router.post("/boom/{token}")
+    async def boom(token: str, item: Item) -> None:
+        raise RuntimeError(f"{token} {item.name}")
+
+    @router.get("/stream-boom")
+    async def stream_boom() -> StreamingResponse:
+        async def chunks() -> AsyncIterator[bytes]:
+            yield b"first"
+            raise RuntimeError("synthetic-stream-value")
+
+        return StreamingResponse(chunks())
 
     app.include_router(router)
 
@@ -95,13 +106,46 @@ async def test_http_exception_custom_detail(client: httpx.AsyncClient) -> None:
     assert (body["code"], body["message"]) == ("forbidden", "Нельзя")
 
 
-async def test_unhandled_exception_hides_details(client: httpx.AsyncClient) -> None:
-    r = await client.get("/_t/boom")
+async def test_unhandled_exception_hides_details(
+    app: FastAPI, caplog: pytest.LogCaptureFixture
+) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=True),
+        base_url="https://test",
+    ) as client:
+        origin = app.state.settings.cors_origins[0]
+        r = await client.post(
+            "/_t/boom/synthetic-path-token?photo_url=synthetic-url-secret",
+            json={"name": "synthetic-exception-value", "qty": 1},
+            headers={
+                "Origin": origin,
+                "Cookie": "rs_session=synthetic-cookie",
+                "Authorization": "Agent synthetic-agent",
+            },
+        )
     assert r.status_code == 500
+    assert r.headers["access-control-allow-origin"] == origin
+    assert r.headers["access-control-allow-credentials"] == "true"
     body = r.json()
     assert_error_shape(body)
     assert body["code"] == "internal_error"
-    assert "секретная" not in r.text
+    assert "synthetic-exception-value" not in r.text
+    assert "synthetic-" not in caplog.text
+    assert "POST /_t/boom/{token}" in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+async def test_error_after_stream_started_hides_exception(
+    app: FastAPI, caplog: pytest.LogCaptureFixture
+) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        with pytest.raises(RuntimeError, match="Ошибка после начала HTTP-ответа") as raised:
+            await client.get("/_t/stream-boom")
+    assert raised.value.__suppress_context__
+    assert "synthetic-stream-value" not in caplog.text
+    assert "GET /_t/stream-boom" in caplog.text
 
 
 def test_prod_requires_secret_key() -> None:
@@ -113,3 +157,27 @@ def test_prod_requires_secret_key() -> None:
 def test_cors_origins_from_comma_string(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RS_CORS_ORIGINS", "http://a.test, http://b.test")
     assert Settings().cors_origins == ["http://a.test", "http://b.test"]
+
+
+async def test_cors_credentials_only_for_configured_origin(
+    app: FastAPI, client: httpx.AsyncClient
+) -> None:
+    (allowed,) = app.state.settings.cors_origins
+    for origin, expected_status in ((allowed, 200), ("https://unlisted.test", 400)):
+        headers = {
+            "Origin": origin,
+            "Access-Control-Request-Method": "PUT",
+            "Access-Control-Request-Headers": "content-type, x-requested-with",
+        }
+        preflight = await client.options("/api/auth/me/printer", headers=headers)
+        assert preflight.status_code == expected_status
+        response = await client.get("/api/auth/me", headers={"Origin": origin})
+        assert response.status_code == 401
+        if origin == allowed:
+            for result in (preflight, response):
+                assert result.headers["access-control-allow-origin"] == origin
+                assert result.headers["access-control-allow-credentials"] == "true"
+                assert "Origin" in result.headers["vary"]
+        else:
+            assert "access-control-allow-origin" not in preflight.headers
+            assert "access-control-allow-origin" not in response.headers

@@ -147,8 +147,8 @@ class EventHub:
                     flags=participant_flags(p),
                 )
                 stats = await stats_message(session)
-        except Exception:
-            log.exception("Событие участника %s не разослано", participant_id)
+        except Exception as exc:
+            log.error("Событие участника %s не разослано (%s)", participant_id, type(exc).__name__)
             return
         self._broadcast(sse_message(PARTICIPANT_UPDATED_EVENT, updated))
         self._broadcast(stats)
