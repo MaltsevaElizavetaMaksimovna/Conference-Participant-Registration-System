@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from ssl import SSLContext
 
 import pytest
 
@@ -53,7 +54,7 @@ heartbeat_s = 5
     ini_file.write_text(ini_content, encoding="utf-8")
 
     class MockServerClient:
-        def __init__(self, base_url: str, token: str) -> None:
+        def __init__(self, base_url: str, token: str, *, verify: SSLContext | bool) -> None:
             self.base_url = base_url
             self.token = token
             self.closed = False
@@ -95,3 +96,27 @@ heartbeat_s = 5
     assert "XP-360B-TestPrinter" in log_text
     assert "http://test-server:8080" in log_text
     assert "0.1.0" in log_text
+
+
+def test_invalid_certificate_stops_before_connecting(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "agent.ini"
+    config.write_text(
+        "[agent]\nserver_url = https://regsys.example.test\nprinter_name = TestPrinter"
+        "\ntoken = synthetic-secret\nca_file = missing.pem\n",
+        encoding="utf-8",
+    )
+    assert main(["--config", str(config)]) == 2
+    captured = capsys.readouterr()
+    assert "ca_file" in captured.err
+    assert "synthetic-secret" not in captured.err
+
+
+def test_malformed_config_does_not_print_its_contents(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "agent.ini"
+    config.write_text("[agent]\nsynthetic-secret\n", encoding="utf-8")
+    assert main(["--config", str(config)]) == 2
+    assert "synthetic-secret" not in capsys.readouterr().err

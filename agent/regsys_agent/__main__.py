@@ -6,6 +6,7 @@ import argparse
 import logging
 import logging.handlers
 import signal
+import ssl
 import sys
 import threading
 from pathlib import Path
@@ -54,7 +55,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Ошибка конфигурации: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"Ошибка загрузки конфигурации: {exc}", file=sys.stderr)
+        print(f"Ошибка загрузки конфигурации ({type(exc).__name__})", file=sys.stderr)
+        return 2
+
+    try:
+        verify = ssl.create_default_context(cafile=str(config.ca_file)) if config.ca_file else True
+    except OSError:
+        print("Не удалось загрузить сертификат ca_file", file=sys.stderr)
         return 2
 
     config.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,8 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             config.server_url,
         )
 
-        client_worker = ServerClient(config.server_url, config.token)
-        client_heartbeat = ServerClient(config.server_url, config.token)
+        client_worker = ServerClient(config.server_url, config.token, verify=verify)
+        client_heartbeat = ServerClient(config.server_url, config.token, verify=verify)
         spooler = Win32Spooler(config.printer_name)
         journal = Journal(config.journal_path)
         timing = PrintTiming(

@@ -1,17 +1,26 @@
-# Сборка исполняемого файла regsys-agent в один exe
+﻿# Сборка исполняемого файла regsys-agent.
+$ErrorActionPreference = 'Stop'
 
-$ErrorActionPreference = "Stop"
+Push-Location -LiteralPath $PSScriptRoot
+try {
+    $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        & py -3.12 -m venv .venv
+        if ($LASTEXITCODE -ne 0) { throw 'Не удалось создать виртуальное окружение' }
+    }
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ScriptDir
+    & $python -m pip install -e '.[dev]' pyinstaller
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось установить зависимости сборки' }
 
-# Создание виртуального окружения при отсутствии
-if (-not (Test-Path ".venv")) {
-    py -3.12 -m venv .venv
+    & $python -m PyInstaller --noconfirm --onefile --name regsys-agent --console regsys_agent/__main__.py
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось собрать regsys-agent.exe' }
+
+    $binary = Join-Path $PSScriptRoot 'dist\regsys-agent.exe'
+    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+        throw 'Сборщик не создал regsys-agent.exe'
+    }
+    Get-Item -LiteralPath $binary
 }
-
-# Установка зависимостей и pyinstaller
-& .venv\Scripts\pip install -e ".[dev]" pyinstaller
-
-# Сборка одного консольного exe-файла
-& .venv\Scripts\pyinstaller --onefile --name regsys-agent --console regsys_agent/__main__.py
+finally {
+    Pop-Location
+}

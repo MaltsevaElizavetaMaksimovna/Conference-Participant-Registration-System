@@ -23,6 +23,7 @@ heartbeat_s = 15.5
 spool_timeout_s = 20.0
 settle_s = 5.0
 stale_after_s = 60.0
+ca_file = certs/site-ca.pem
 """
     ini_file.write_text(ini_content, encoding="utf-8")
 
@@ -38,6 +39,7 @@ stale_after_s = 60.0
     assert cfg.spool_timeout_s == 20.0
     assert cfg.settle_s == 5.0
     assert cfg.stale_after_s == 60.0
+    assert cfg.ca_file == tmp_path / "certs/site-ca.pem"
 
 
 def test_load_config_defaults(tmp_path: Path) -> None:
@@ -62,6 +64,7 @@ token = ini_token
     assert cfg.spool_timeout_s == 10.0
     assert cfg.settle_s == 3.0
     assert cfg.stale_after_s == 30.0
+    assert cfg.ca_file is None
 
 
 def test_token_env_precedence(tmp_path: Path) -> None:

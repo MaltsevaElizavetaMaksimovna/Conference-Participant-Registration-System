@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 from dataclasses import dataclass
+from ssl import SSLContext
 from typing import Any
 
 import httpx
@@ -51,11 +52,13 @@ class ServerClient:
         *,
         timeout_s: float = 10.0,
         transport: httpx.BaseTransport | None = None,
+        verify: SSLContext | bool = True,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_s = timeout_s
         self._client = httpx.Client(
             transport=transport,
+            verify=verify,
             timeout=timeout_s,
             headers={"Authorization": f"Agent {token}"},
         )

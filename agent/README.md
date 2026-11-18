@@ -18,6 +18,8 @@ python -m regsys_agent --config agent.ini
 
 ## Сборка
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1
+powershell -NoProfile -File build.ps1
 ```
 Результат сборки: `dist/regsys-agent.exe`.
+
+Установка на выделенный терминал и запуск после перезагрузки описаны в [инструкции киоска](kiosk/README.md).

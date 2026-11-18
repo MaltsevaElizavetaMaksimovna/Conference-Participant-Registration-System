@@ -23,6 +23,7 @@ class AgentConfig:
     spool_timeout_s: float = 10
     settle_s: float = 3
     stale_after_s: float = 30
+    ca_file: Path | None = None
 
 
 def load_config(path: Path, env: Mapping[str, str] = os.environ) -> AgentConfig:
@@ -34,7 +35,7 @@ def load_config(path: Path, env: Mapping[str, str] = os.environ) -> AgentConfig:
     if not path.is_file():
         raise FileNotFoundError(f"Файл конфигурации не найден: {path}")
 
-    parser = configparser.ConfigParser()
+    parser = configparser.ConfigParser(interpolation=None)
     parser.read(path, encoding="utf-8")
 
     if not parser.has_section("agent"):
@@ -75,6 +76,9 @@ def load_config(path: Path, env: Mapping[str, str] = os.environ) -> AgentConfig:
     else:
         log_path = base_dir / "agent.log"
 
+    ca_value = sec.get("ca_file", "").strip()
+    ca_file = (base_dir / ca_value).resolve() if ca_value else None
+
     wait_s = sec.getint("wait_s", fallback=25)
     heartbeat_s = sec.getfloat("heartbeat_s", fallback=10.0)
     spool_timeout_s = sec.getfloat("spool_timeout_s", fallback=10.0)
@@ -92,4 +96,5 @@ def load_config(path: Path, env: Mapping[str, str] = os.environ) -> AgentConfig:
         spool_timeout_s=spool_timeout_s,
         settle_s=settle_s,
         stale_after_s=stale_after_s,
+        ca_file=ca_file,
     )
