@@ -1,9 +1,12 @@
 """Действия стойки на PostgreSQL (B2-15)."""
 
+import base64
 from decimal import Decimal
+from io import BytesIO
 
 import httpx
 import pytest
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -228,3 +231,70 @@ async def test_register_with_sticker_requires_print_permission(
     assert response.json()["details"]["missing"] == ["stickers.print"]
     assert await print_jobs(db, participant.id) == []
     assert await events(db, EventType.REGISTERED, participant.id) == []
+
+
+async def test_reprint_keeps_changed_badge_mark(
+    db: AsyncSession, login_as: LoginAs, devices: Devices, anon: httpx.AsyncClient
+) -> None:
+    conference = await make_conference(db)
+    name_field = {
+        "type": "field",
+        "field": "last_name",
+        "x_mm": 5,
+        "y_mm": 5,
+        "w_mm": 50,
+        "h_mm": 10,
+        "font_size": 14,
+        "min_font_size": 8,
+        "max_lines": 1,
+    }
+    marker = {
+        "type": "text",
+        "text": "Данные изменены",
+        "x_mm": 5,
+        "y_mm": 25,
+        "w_mm": 50,
+        "h_mm": 10,
+        "font_size": 14,
+        "min_font_size": 8,
+        "max_lines": 1,
+    }
+    front = await _make_template(db, conference.id, elements=[name_field])
+    changed = await _make_template(
+        db, conference.id, name="Данные изменены", kind="changed", elements=[name_field, marker]
+    )
+    conference.front_template_id = front.id
+    conference.changed_template_id = changed.id
+    await db.commit()
+
+    edited = await make_participant(db, conference, external_id="B24-2071", last_name="Ивнов")
+    plain = await make_participant(db, conference, external_id="B24-2072", last_name="Иванов")
+    staff = await login_as("registration.desk", "stickers.print", "participants.edit")
+    printer, token = await devices.printer()
+    chosen = await staff.put("/api/auth/me/printer", json={"printer_id": printer.id})
+    assert chosen.status_code == 200, chosen.text
+    changed_card = await staff.patch(f"/api/participants/{edited.id}", json={"last_name": "Иванов"})
+    assert changed_card.status_code == 200, changed_card.text
+
+    async def print_png(participant_id: int, action: str) -> bytes:
+        request = await staff.post(f"/api/participants/{participant_id}/{action}")
+        assert request.status_code == 200, request.text
+        claimed = await anon.get("/api/agent/jobs/next?wait=0", headers=agent_auth(token))
+        assert claimed.status_code == 200, claimed.text
+        job = AgentJob.model_validate_json(claimed.content)
+        assert job.job_id == request.json()["print_job_id"]
+        [copy] = job.copies
+        return base64.b64decode(copy.png_base64)
+
+    corrected = await print_png(edited.id, "register")
+    regular = await print_png(plain.id, "register")
+    repeated = await print_png(edited.id, "reprint")
+    assert repeated == corrected
+    # Поле фамилии и QR в эту область не попадают.
+    marker_box = tuple(round(mm * printer.dpi / 25.4) for mm in (5, 25, 55, 35))
+    with (
+        Image.open(BytesIO(regular)) as regular_img,
+        Image.open(BytesIO(corrected)) as corrected_img,
+    ):
+        assert regular_img.convert("L").crop(marker_box).getextrema() == (255, 255)
+        assert corrected_img.convert("L").crop(marker_box).getextrema()[0] == 0
