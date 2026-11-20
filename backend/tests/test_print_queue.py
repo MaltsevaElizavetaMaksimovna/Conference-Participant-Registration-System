@@ -20,7 +20,7 @@ from app.models.participant import EventLog, Participant
 from app.models.printing import PrintJob
 from app.printing.queue import expire_stale
 from app.printing.sweeper import PrintSweeper
-from app.registration.messages import STICKER_FAILED, STICKER_PRINTING
+from app.registration.messages import STICKER_FAILED
 from tests.conftest import Devices, LoginAs
 from tests.registration_helpers import (
     auth,
@@ -248,7 +248,13 @@ async def test_job_result_ok_terminal_status_and_idempotency(
     # Запрос статуса своим терминалом
     r_own = await anon.get(f"/api/terminal/print-jobs/{job_id}", headers=auth(term_token))
     assert r_own.status_code == 200, r_own.text
-    assert r_own.json() == {"status": "done", "message": STICKER_PRINTING}
+    assert r_own.json() == {
+        "status": "done",
+        "message": (
+            "Задание передано принтеру. "
+            "Заберите наклейку и подойдите к стойке регистрации за бейджем"
+        ),
+    }
 
     # Запрос статуса чужим терминалом -> 404
     r_other = await anon.get(f"/api/terminal/print-jobs/{job_id}", headers=auth(other_term_token))
