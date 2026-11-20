@@ -2,7 +2,7 @@
 	admin off
 	skip_install_trust
 	log {
-		exclude http.log.access http.log.error
+		exclude http.log.access http.log.error http.handlers.reverse_proxy
 	}
 }
 
