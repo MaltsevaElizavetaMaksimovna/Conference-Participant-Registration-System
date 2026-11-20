@@ -68,7 +68,8 @@ def make(tmp_path: Path, client: FakeClient, spooler: FakeSpooler) -> tuple[Work
     return Worker(client, spooler, journal), journal  # type: ignore[arg-type]
 
 
-def test_job_printed_once_and_reported(tmp_path: Path) -> None:
+def test_job_printed_once_and_reported(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO", logger="regsys_agent.worker")
     client, spooler = FakeClient([job(7)]), FakeSpooler()
     worker, journal = make(tmp_path, client, spooler)
 
@@ -76,6 +77,7 @@ def test_job_printed_once_and_reported(tmp_path: Path) -> None:
 
     assert spooler.submitted == [f"{DOC_PREFIX}7"]
     assert client.results == [(7, True, None)]
+    assert "Задание 7: передано принтеру" in caplog.messages
     rec = journal.get(7)
     assert rec is not None and rec.state == "sent"
 

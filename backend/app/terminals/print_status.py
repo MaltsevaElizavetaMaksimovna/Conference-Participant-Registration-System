@@ -25,5 +25,10 @@ async def get_terminal_print_job(
     if status is None:
         raise print_job_not_found()
 
-    message = messages.STICKER_FAILED if status == "error" else messages.STICKER_PRINTING
+    if status == "error":
+        message = messages.STICKER_FAILED
+    elif status == "done":
+        message = messages.STICKER_SENT
+    else:
+        message = messages.STICKER_PRINTING
     return TerminalPrintJobOut(status=cast(PrintJobStatus, status), message=message)

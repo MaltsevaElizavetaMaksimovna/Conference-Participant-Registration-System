@@ -70,7 +70,8 @@ class Worker:
             self._journal.started(job.job_id)
             outcome = self._print(job)
             self._journal.finished(job.job_id, outcome.ok, outcome.error)
-            log.info("Задание %s: %s", job.job_id, "напечатано" if outcome.ok else outcome.error)
+            message = "передано принтеру" if outcome.ok else outcome.error
+            log.info("Задание %s: %s", job.job_id, message)
         else:
             log.warning("Задание %s уже обрабатывалось: повторно не печатаем", job.job_id)
         self.flush_results()
