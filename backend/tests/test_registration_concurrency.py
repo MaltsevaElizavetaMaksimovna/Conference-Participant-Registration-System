@@ -7,7 +7,7 @@
 Проверка заказчика: повторить 20 раз и ни разу не получить двух наклеек. Здесь:
 - 20 раундов «два терминала одновременно» (вызов `register()`),
 - 20 раундов «терминал против стойки»,
-- 20 раундов «два confirm по HTTP с разных терминалов»,
+- по 20 раундов с двумя и десятью одновременными confirm по HTTP,
 - одинаковый `Idempotency-Key` в трёх параллельных confirm.
 
 Если убрать из UPDATE условие `AND status = 'not_registered'`, эти тесты падают
@@ -342,35 +342,51 @@ async def test_parallel_same_idempotency_key_returns_one_answer(world: World) ->
 # ---------------------------------------------------------------------------- через HTTP
 
 
-async def test_two_confirms_from_two_terminals_over_http(
-    world: World, client: httpx.AsyncClient
+@pytest.mark.parametrize("attempts", [2, 10])
+async def test_parallel_confirms_from_two_terminals_over_http(
+    world: World, client: httpx.AsyncClient, attempts: int
 ) -> None:
-    for _ in range(ROUNDS):
+    async def send(barrier: asyncio.Barrier, token: str, pid: int, scan_id: str) -> httpx.Response:
+        await barrier.wait()
+        return await confirm(client, token, pid, scan_id, key=uuid.uuid4().hex)
+
+    for round_number in range(1, ROUNDS + 1):
         pid = await world.new_participant()
         raw = await world.external_id(pid)
-        (_, scan_a), (_, scan_b) = (
-            await scan_and_get_id(client, world.terminal_tokens[0], raw),
-            await scan_and_get_id(client, world.terminal_tokens[1], raw),
-        )
+        scans = [await scan_and_get_id(client, token, raw) for token in world.terminal_tokens]
+        assert all(participant_id == pid for participant_id, _ in scans)
+        barrier = asyncio.Barrier(attempts)
 
-        ra, rb = await asyncio.gather(
-            confirm(client, world.terminal_tokens[0], pid, scan_a, key=uuid.uuid4().hex),
-            confirm(client, world.terminal_tokens[1], pid, scan_b, key=uuid.uuid4().hex),
+        indices = [i % len(scans) for i in range(attempts)]
+        responses = await asyncio.wait_for(
+            asyncio.gather(
+                *(send(barrier, world.terminal_tokens[i], pid, scans[i][1]) for i in indices)
+            ),
+            30,
         )
+        assert all(r.status_code == 200 for r in responses), (
+            round_number,
+            [(r.status_code, r.text) for r in responses],
+        )
+        bodies = [response.json() for response in responses]
+        assert sorted(body["result"] for body in bodies) == [
+            *(["already_registered"] * (attempts - 1)),
+            "registered",
+        ], (round_number, bodies)
+        winner = next(i for i, body in enumerate(bodies) if body["result"] == "registered")
+        for i, body in enumerate(bodies):
+            if i != winner:
+                assert body["print_job_id"] is None
+                assert body["message"].startswith("Вы уже зарегистрированы (")
 
-        assert (ra.status_code, rb.status_code) == (200, 200), (ra.text, rb.text)
-        bodies = [ra.json(), rb.json()]
-        assert sorted(b["result"] for b in bodies) == ["already_registered", "registered"]
-        winner_index = 0 if bodies[0]["result"] == "registered" else 1
-        loser_body = bodies[1 - winner_index]
-        assert loser_body["print_job_id"] is None
-        assert loser_body["message"].startswith("Вы уже зарегистрированы (")
+        winner_terminal = indices[winner]
         snap = await world.snapshot(pid)
-        assert len(snap["jobs"]) == 1, snap
-        # наклейка ушла на принтер именно победившего терминала
-        assert snap["jobs"][0][1] == world.printer_ids[winner_index]
-        assert snap["reg_terminal_id"] == world.terminal_ids[winner_index]
-        assert snap["jobs"][0][0] == bodies[winner_index]["print_job_id"]
+        assert snap["status"] == "registered"
+        assert snap["registered_events"] == 1, (round_number, snap)
+        assert snap["reg_terminal_id"] == world.terminal_ids[winner_terminal]
+        assert snap["jobs"] == [
+            (bodies[winner]["print_job_id"], world.printer_ids[winner_terminal])
+        ], (round_number, snap)
 
 
 async def test_triple_parallel_confirm_with_same_key_over_http(
