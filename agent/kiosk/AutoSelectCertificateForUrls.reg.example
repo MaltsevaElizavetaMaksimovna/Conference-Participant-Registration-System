@@ -1,0 +1,4 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\AutoSelectCertificateForUrls]
+"1"="{\"pattern\":\"https://kiosk-a.example.test:443\",\"filter\":{\"ISSUER\":{\"CN\":\"Example Kiosk Client CA\"},\"SUBJECT\":{\"CN\":\"Example Kiosk A\"}}}"

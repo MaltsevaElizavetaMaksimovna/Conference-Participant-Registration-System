@@ -1,0 +1,75 @@
+# Args: HTTPS authority, client CA PEM, device leaf PEM, runtime token placeholder.
+(regsys_kiosk) {
+	tls {
+		issuer {$RS_TLS_ISSUER:internal}
+		client_auth {
+			mode require_and_verify
+			trust_pool file {args[1]}
+			verifier leaf file {args[2]}
+		}
+	}
+
+	import regsys_security_headers
+
+	@read expression `method('GET') && (path('/api/terminal/ping') || path_regexp('^/api/terminal/print-jobs/[1-9][0-9]*$'))`
+	@write {
+		method POST
+		path /api/terminal/scan /api/terminal/confirm /api/terminal/report-error
+	}
+	@same_origin {
+		header Origin https://{args[0]}
+		header Sec-Fetch-Site same-origin
+	}
+	@same_origin_fetch header Sec-Fetch-Site same-origin
+
+	route {
+		handle @write {
+			handle @same_origin {
+				import regsys_kiosk_api {args[3]}
+			}
+			handle {
+				respond 403
+			}
+		}
+		handle @read {
+			handle @same_origin_fetch {
+				import regsys_kiosk_api {args[3]}
+			}
+			handle {
+				respond 403
+			}
+		}
+		@start {
+			method GET HEAD
+			path /
+		}
+		handle @start {
+			root * /srv/regsys
+			rewrite * /index.html
+			encode zstd gzip
+			file_server
+		}
+		@assets {
+			method GET HEAD
+			path /assets/*
+		}
+		handle @assets {
+			root * /srv/regsys
+			encode zstd gzip
+			file_server
+		}
+		handle {
+			respond 404
+		}
+	}
+}
+
+(regsys_kiosk_api) {
+	header Cache-Control "no-store"
+	reverse_proxy api:8000 {
+		header_up Authorization "Terminal {args[0]}"
+		header_up -Cookie
+		header_down -Access-Control-*
+		header_down -Set-Cookie
+	}
+}

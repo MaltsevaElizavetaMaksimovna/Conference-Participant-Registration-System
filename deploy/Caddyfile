@@ -6,11 +6,7 @@
 	}
 }
 
-https://{$RS_PUBLIC_HOST} {
-	tls {
-		issuer {$RS_TLS_ISSUER:internal}
-	}
-
+(regsys_security_headers) {
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		Referrer-Policy "no-referrer"
@@ -19,6 +15,17 @@ https://{$RS_PUBLIC_HOST} {
 		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
 		-Server
 	}
+}
+
+import kiosk.caddy
+import kiosks/sites/*.caddy
+
+https://{$RS_PUBLIC_HOST} {
+	tls {
+		issuer {$RS_TLS_ISSUER:internal}
+	}
+
+	import regsys_security_headers
 
 	@api path /api /api/* /health
 	handle @api {

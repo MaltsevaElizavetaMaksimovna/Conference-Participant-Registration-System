@@ -1,0 +1,9 @@
+services:
+  edge:
+    volumes:
+      - type: bind
+        source: ${RS_KIOSK_CONFIG_DIR:?Set RS_KIOSK_CONFIG_DIR}
+        target: /etc/caddy/kiosks
+        read_only: true
+        bind:
+          create_host_path: false
