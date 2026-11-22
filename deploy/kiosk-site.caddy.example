@@ -1,0 +1,3 @@
+https://kiosk-a.example.test {
+	import regsys_kiosk kiosk-a.example.test /etc/caddy/kiosks/trust/client-ca.pem /etc/caddy/kiosks/trust/kiosk-a.pem {file./etc/caddy/kiosks/secrets/kiosk-a.token}
+}
