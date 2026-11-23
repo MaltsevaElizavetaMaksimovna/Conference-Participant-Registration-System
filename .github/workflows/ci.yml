@@ -62,3 +62,31 @@ jobs:
       - run: npm ci
       - run: npm exec -- tsc --noEmit
       - run: npm run build
+
+  backup-delivery:
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE_FILE: docker-compose.prod.yml:docker-compose.backup-mirror.yml
+      COMPOSE_PROJECT_NAME: regsys-backup-ci
+      POSTGRES_PASSWORD: regsys_backup_compose_ci_only
+      RS_SECRET_KEY: regsys-backup-compose-ci-only
+      RS_PUBLIC_HOST: regsys-backup-ci.localhost
+      RS_BACKUP_MIRROR_HOST_DIR: ${{ runner.temp }}/regsys-backup-mirror
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the backup service
+        run: |
+          sudo install -d -m 0700 -o 1000 -g 1000 "$RS_BACKUP_MIRROR_HOST_DIR"
+          docker compose config --quiet
+          docker compose build api backup
+          docker compose up -d --wait db
+          docker compose run --rm --no-deps api python -m app.cli migrate
+          docker compose run --rm --no-deps -T backup python - seed < deploy/tests/backup_delivery_smoke.py
+          docker compose up -d --wait backup
+      - name: Restore database and photos from the mirror
+        run: docker compose exec -T backup python - verify < deploy/tests/backup_delivery_smoke.py
+      - name: Clean up the disposable CI project
+        if: always()
+        run: |
+          docker compose logs --no-color backup || true
+          docker compose down --volumes

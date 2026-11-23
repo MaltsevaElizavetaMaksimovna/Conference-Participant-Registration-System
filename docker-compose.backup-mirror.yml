@@ -1,0 +1,10 @@
+services:
+  backup:
+    environment:
+      RS_BACKUP_MIRROR_DIR: /backup-mirror
+    volumes:
+      - type: bind
+        source: ${RS_BACKUP_MIRROR_HOST_DIR:?Set RS_BACKUP_MIRROR_HOST_DIR to a mounted independent storage directory}
+        target: /backup-mirror
+        bind:
+          create_host_path: false
