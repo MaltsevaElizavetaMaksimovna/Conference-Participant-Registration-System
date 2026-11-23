@@ -18,7 +18,10 @@ def px_for_pt(pt: float, dpi: int) -> int:
 
 @lru_cache(maxsize=256)
 def _load(bold: bool, size_px: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(BOLD if bold else REGULAR), size=size_px)
+    # Для русских и английских наклеек используем метрики эталонного рендера на обеих ОС.
+    return ImageFont.truetype(
+        str(BOLD if bold else REGULAR), size=size_px, layout_engine=ImageFont.Layout.BASIC
+    )
 
 
 def font(pt: float, *, bold: bool, dpi: int) -> ImageFont.FreeTypeFont:
