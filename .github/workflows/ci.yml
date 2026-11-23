@@ -71,11 +71,12 @@ jobs:
       POSTGRES_PASSWORD: regsys_backup_compose_ci_only
       RS_SECRET_KEY: regsys-backup-compose-ci-only
       RS_PUBLIC_HOST: regsys-backup-ci.localhost
-      RS_BACKUP_MIRROR_HOST_DIR: ${{ runner.temp }}/regsys-backup-mirror
     steps:
       - uses: actions/checkout@v4
       - name: Build and start the backup service
         run: |
+          export RS_BACKUP_MIRROR_HOST_DIR="$RUNNER_TEMP/regsys-backup-mirror"
+          printf 'RS_BACKUP_MIRROR_HOST_DIR=%s\n' "$RS_BACKUP_MIRROR_HOST_DIR" >> "$GITHUB_ENV"
           sudo install -d -m 0700 -o 1000 -g 1000 "$RS_BACKUP_MIRROR_HOST_DIR"
           docker compose config --quiet
           docker compose build api backup
@@ -88,5 +89,6 @@ jobs:
       - name: Clean up the disposable CI project
         if: always()
         run: |
+          export RS_BACKUP_MIRROR_HOST_DIR="${RS_BACKUP_MIRROR_HOST_DIR:-$RUNNER_TEMP/regsys-backup-mirror}"
           docker compose logs --no-color backup || true
           docker compose down --volumes
