@@ -236,12 +236,14 @@ h2 { font-size: 18px; margin-bottom: 16px; color: var(--tpu-dark); font-weight: 
 }
 
 .nav_item {
+    display: block;
     padding: 12px 16px;
     border-radius: 6px;
     color: var(--tpu-gray-text);
     font-size: 15px;
     font-weight: 500;
     cursor: pointer;
+    text-decoration: none;
     margin-bottom: 4px;
     transition: background 0.15s, color 0.15s;
 }
@@ -272,9 +274,25 @@ h2 { font-size: 18px; margin-bottom: 16px; color: var(--tpu-dark); font-weight: 
     margin-bottom: 24px;
 }
 
+.admin_settings { padding: 32px; overflow-y: auto; }
+.admin_settings > * { flex-shrink: 0; }
+.admin_settings .table_wrapper + section { margin-top: 24px; }
+
 .admin_header_buttons {
     display: flex;
     gap: 12px;
+}
+
+.panel_printer {
+    margin-bottom: 12px;
+}
+
+.panel_printer label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: fit-content;
+    max-width: 100%;
 }
 
 .search_row {

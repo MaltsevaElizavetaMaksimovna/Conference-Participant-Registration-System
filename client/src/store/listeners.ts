@@ -1,29 +1,32 @@
+import {isAnyOf} from '@reduxjs/toolkit';
 import {startAppListening} from "~/store/listenerMiddleware";
 import {
     confirmRegistration,
     fetchTerminalJob,
     pingTerminal,
     resetToIdle,
-    showResult, terminalMounted
+    showResult, terminalMounted, terminalUnmounted
 } from "~/store/reducers/TerminalSlice";
 import {AUTO_RESET_TIMEOUT, FINISH_OR_ERROR_RESET_TIMEOUT} from "~/config/consts";
 
 
 export function registerListeners() {
     startAppListening({
-        actionCreator: terminalMounted,
-        effect: async (_, api) => {
-            await api.dispatch(pingTerminal());
+        matcher: isAnyOf(terminalMounted, terminalUnmounted),
+        effect: async (action, api) => {
+            api.cancelActiveListeners();
+            if (terminalUnmounted.match(action)) return;
 
-            while (true) {
+            while (!api.signal.aborted) {
+                const request = api.dispatch(pingTerminal());
+                const cancel = () => request.abort();
+                api.signal.addEventListener('abort', cancel, {once: true});
+                const result = await request;
+                api.signal.removeEventListener('abort', cancel);
+                if (api.signal.aborted) return;
+                if (pingTerminal.rejected.match(result) &&
+                    ['invalid_device_token', 'not_found'].includes(result.payload?.code ?? '')) return;
                 await api.delay(3000);
-                const state = api.getState().terminalReducer;
-
-                if (state.connection === 'disabled') {
-                    break;
-                }
-
-                await api.dispatch(pingTerminal());
             }
         },
     });
@@ -66,7 +69,8 @@ export function registerListeners() {
                 ? api.getState().terminalReducer.ping!.settings.result_screen_s * 1000
                 : FINISH_OR_ERROR_RESET_TIMEOUT;
 
-            const returned = await api.condition(resetToIdle.match, timeout);
+            const returned = await api.condition((_, state) =>
+                !['success', 'error'].includes(state.terminalReducer.screen), timeout);
 
             if (!returned) {
                 api.dispatch(resetToIdle());

@@ -1,4 +1,5 @@
 import {useState, useEffect} from 'react';
+import {Link, useSearchParams} from 'react-router';
 import {useAppDispatch, useAppSelector} from '~/hooks/redux';
 import {fetchConferences, activateConference} from '~/store/reducers/ConferenceSlice';
 import {
@@ -12,7 +13,7 @@ import {
     deleteRole,
     clearLastToken
 } from '~/store/reducers/SettingsSlice';
-import type {RoleOut} from '~/models/api';
+import type {ConferenceOut, PrinterAdminOut, RoleOut, TerminalOut, UserOut} from '~/models/api';
 import {CreateConferenceModal} from "~/modules/AdminModule/components/modals/CreateConferenceModal";
 import {CreateTerminalModal} from "~/modules/AdminModule/components/modals/CreateTerminalModal";
 import {CreatePrinterModal} from "~/modules/AdminModule/components/modals/CreatePrinterModal";
@@ -20,29 +21,45 @@ import {CreateUserModal} from "~/modules/AdminModule/components/modals/CreateUse
 import {RoleModal} from "~/modules/AdminModule/components/modals/RoleModal";
 import {TerminalTokenModal} from "~/modules/AdminModule/components/modals/TerminalTokenModal";
 
-type Tab = 'conferences' | 'terminals' | 'users' | 'roles';
+import {settingsTabs, type SettingsTab} from './staffNavigation';
+import {TemplateEditor} from './templates/TemplateEditor';
+import {PrinterSettings} from './PrinterSettings';
 
 export const AdminSettings = () => {
     const dispatch = useAppDispatch();
-    const [activeTab, setActiveTab] = useState<Tab>('conferences');
+    const user = useAppSelector(state => state.authReducer.user);
+    const [searchParams] = useSearchParams();
+    const templateId = searchParams.get('templates') ?? '';
+    const templateConferenceId = user?.permissions.includes(settingsTabs.conferences) && /^[1-9]\d*$/.test(templateId)
+        && Number.isSafeInteger(Number(templateId)) ? Number(templateId) : null;
+    const visibleTabs = (Object.keys(settingsTabs) as SettingsTab[]).filter(tab =>
+        user?.permissions.includes(settingsTabs[tab]));
+    const [chosenTab, setActiveTab] = useState<SettingsTab>('conferences');
+    const activeTab = visibleTabs.includes(chosenTab) ? chosenTab : visibleTabs[0];
 
     const {list: conferences} = useAppSelector(state => state.conferenceReducer);
     const {terminals, printers, users, roles, lastIssuedToken} = useAppSelector(state => state.settingsReducer);
 
-    const [isConferenceModalOpen, setIsConferenceModalOpen] = useState(false);
-    const [isTerminalModalOpen, setIsTerminalModalOpen] = useState(false);
-    const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
-    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+    const [conferenceModal, setConferenceModal] = useState<ConferenceOut | null>();
+    const [terminalModal, setTerminalModal] = useState<TerminalOut | null>();
+    const [printerModal, setPrinterModal] = useState<PrinterAdminOut | null>();
+    const [userModal, setUserModal] = useState<UserOut | null>();
     const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
     const [editingRole, setEditingRole] = useState<RoleOut | null>(null);
 
-    // useEffect(() => {
-    //     dispatch(fetchConferences({ limit: 100, offset: 0 }));
-    //     dispatch(fetchTerminals());
-    //     dispatch(fetchPrinters());
-    //     dispatch(fetchUsers());
-    //     dispatch(fetchRoles());
-    // }, [dispatch]);
+    useEffect(() => {
+        if (templateConferenceId !== null) return;
+        if (activeTab === 'conferences') dispatch(fetchConferences({limit: 100, offset: 0}));
+        if (activeTab === 'terminals') {
+            dispatch(fetchTerminals());
+            dispatch(fetchPrinters());
+        }
+        if (activeTab === 'users') {
+            dispatch(fetchUsers());
+            dispatch(fetchRoles());
+        }
+        if (activeTab === 'roles') dispatch(fetchRoles());
+    }, [dispatch, activeTab, templateConferenceId]);
 
     const handleActivateConference = (id: number) => {
         if (window.confirm('Сделать эту конференцию активной? Терминалы переключатся на неё.')) {
@@ -88,8 +105,12 @@ export const AdminSettings = () => {
         dispatch(clearLastToken());
     };
 
+    if (templateConferenceId !== null) {
+        return <TemplateEditor key={templateConferenceId} conferenceId={templateConferenceId}/>;
+    }
+
     return (
-        <div className="admin_main" style={{padding: '32px'}}>
+        <div className="admin_main admin_settings">
             <h1 style={{marginBottom: '24px'}}>Настройки системы</h1>
 
             <div style={{
@@ -99,7 +120,7 @@ export const AdminSettings = () => {
                 borderBottom: '1px solid var(--tpu-border)',
                 paddingBottom: '16px'
             }}>
-                {(['conferences', 'terminals', 'users', 'roles'] as const).map(tab => (
+                {visibleTabs.map(tab => (
                     <button
                         key={tab}
                         className={`btn ${activeTab === tab ? 'btn_primary' : 'btn_secondary'}`}
@@ -125,7 +146,7 @@ export const AdminSettings = () => {
                         <button
                             className="btn btn_primary"
                             style={{flex: 'none', padding: '8px 16px'}}
-                            onClick={() => setIsConferenceModalOpen(true)}
+                            onClick={() => setConferenceModal(null)}
                         >
                             + Создать конференцию
                         </button>
@@ -167,7 +188,8 @@ export const AdminSettings = () => {
                                                     Активировать
                                                 </button>
                                             )}
-                                            <button className="icon_btn">Изменить</button>
+                                            <Link className="icon_btn" to={`?templates=${c.id}`}>Шаблоны</Link>
+                                            <button className="icon_btn" onClick={() => setConferenceModal(c)}>Изменить</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -196,14 +218,14 @@ export const AdminSettings = () => {
                             <button
                                 className="btn btn_secondary"
                                 style={{flex: 'none', padding: '8px 16px'}}
-                                onClick={() => setIsPrinterModalOpen(true)}
+                                onClick={() => setPrinterModal(null)}
                             >
                                 + Принтер
                             </button>
                             <button
                                 className="btn btn_primary"
                                 style={{flex: 'none', padding: '8px 16px'}}
-                                onClick={() => setIsTerminalModalOpen(true)}
+                                onClick={() => setTerminalModal(null)}
                             >
                                 + Терминал
                             </button>
@@ -235,7 +257,7 @@ export const AdminSettings = () => {
                                         </td>
                                         <td>
                                             <div className="actions_cell">
-                                                <button className="icon_btn">Изменить</button>
+                                                <button className="icon_btn" onClick={() => setTerminalModal(t)}>Изменить</button>
                                                 <button
                                                     className="icon_btn"
                                                     onClick={() => handleIssueToken(t.id)}
@@ -256,6 +278,7 @@ export const AdminSettings = () => {
                             </tbody>
                         </table>
                     </div>
+                    <PrinterSettings printers={printers} onEdit={setPrinterModal}/>
                 </div>
             )}
 
@@ -271,7 +294,7 @@ export const AdminSettings = () => {
                         <button
                             className="btn btn_primary"
                             style={{flex: 'none', padding: '8px 16px'}}
-                            onClick={() => setIsUserModalOpen(true)}
+                            onClick={() => setUserModal(null)}
                         >
                             + Добавить сотрудника
                         </button>
@@ -308,7 +331,7 @@ export const AdminSettings = () => {
                                             >
                                                 {u.is_blocked ? 'Разблокировать' : 'Блокировать'}
                                             </button>
-                                            <button className="icon_btn">Изменить</button>
+                                            <button className="icon_btn" onClick={() => setUserModal(u)}>Изменить</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -383,10 +406,13 @@ export const AdminSettings = () => {
                 </div>
             )}
 
-            {isConferenceModalOpen && <CreateConferenceModal onClose={() => setIsConferenceModalOpen(false)}/>}
-            {isTerminalModalOpen && <CreateTerminalModal onClose={() => setIsTerminalModalOpen(false)}/>}
-            {isPrinterModalOpen && <CreatePrinterModal onClose={() => setIsPrinterModalOpen(false)}/>}
-            {isUserModalOpen && <CreateUserModal onClose={() => setIsUserModalOpen(false)}/>}
+            {conferenceModal !== undefined && <CreateConferenceModal conference={conferenceModal ?? undefined}
+                onClose={() => setConferenceModal(undefined)}/>}
+            {terminalModal !== undefined && <CreateTerminalModal terminal={terminalModal ?? undefined}
+                onClose={() => setTerminalModal(undefined)}/>}
+            {printerModal !== undefined && <CreatePrinterModal printer={printerModal ?? undefined}
+                onClose={() => setPrinterModal(undefined)}/>}
+            {userModal !== undefined && <CreateUserModal user={userModal ?? undefined} onClose={() => setUserModal(undefined)}/>}
             {isRoleModalOpen && <RoleModal role={editingRole} onClose={() => setIsRoleModalOpen(false)}/>}
             {lastIssuedToken && <TerminalTokenModal token={lastIssuedToken} onClose={closeTokenModal}/>}
         </div>

@@ -8,14 +8,14 @@ export default class ConferenceService {
         return adminApi.get<ActiveConferenceOut | null>('/conferences/active');
     }
 
-    static async list(limit = 50, offset = 0): Promise<AxiosResponse<PageConferenceOut>> {
+    static async list(limit = 50, offset = 0, signal?: AbortSignal): Promise<AxiosResponse<PageConferenceOut>> {
         return adminApi.get<PageConferenceOut>('/admin/conferences', {
-            params: {limit, offset},
+            params: {limit, offset}, signal,
         });
     }
 
-    static async getById(id: number): Promise<AxiosResponse<ConferenceOut>> {
-        return adminApi.get<ConferenceOut>(`/admin/conferences/${id}`);
+    static async getById(id: number, signal?: AbortSignal): Promise<AxiosResponse<ConferenceOut>> {
+        return adminApi.get<ConferenceOut>(`/admin/conferences/${id}`, {signal});
     }
 
     static async create(data: ConferenceIn): Promise<AxiosResponse<ConferenceOut>> {

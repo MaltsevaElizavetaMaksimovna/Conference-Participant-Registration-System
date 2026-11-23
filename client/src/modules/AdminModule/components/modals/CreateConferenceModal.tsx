@@ -1,34 +1,46 @@
 import React, {useState} from 'react';
 import {useAppDispatch} from '~/hooks/redux';
-import {createConference, fetchConferences} from '~/store/reducers/ConferenceSlice';
+import {createConference, fetchConferences, updateConference} from '~/store/reducers/ConferenceSlice';
+import type {ConferenceIn, ConferenceOut} from '~/models/api';
 
 interface Props {
     onClose: () => void;
+    conference?: ConferenceOut;
 }
 
-export const CreateConferenceModal = ({onClose}: Props) => {
+export const CreateConferenceModal = ({onClose, conference}: Props) => {
     const dispatch = useAppDispatch();
-    const [formData, setFormData] = useState({
-        title: '',
-        date_from: '',
-        date_to: '',
-        badge_type: 'single' as 'single' | 'double' | 'none',
+    const [formData, setFormData] = useState<ConferenceIn>({
+        title: conference?.title ?? '', date_from: conference?.date_from ?? '', date_to: conference?.date_to ?? '',
+        badge_type: conference?.badge_type ?? 'single', invite_id_regex: conference?.invite_id_regex,
+        front_template_id: conference?.front_template_id, back_template_id: conference?.back_template_id,
+        changed_template_id: conference?.changed_template_id, changed_back_template_id: conference?.changed_back_template_id,
     });
     const [error, setError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
 
     const handleSubmit = async (e: React.SubmitEvent) => {
         e.preventDefault();
+        if (saving) return;
         if (!formData.title.trim() || !formData.date_from || !formData.date_to) {
             setError('Заполните все обязательные поля');
             return;
         }
 
+        setSaving(true);
+        setError(null);
         try {
-            await dispatch(createConference(formData)).unwrap();
+            if (conference) {
+                await dispatch(updateConference({id: conference.id, data: formData})).unwrap();
+            } else {
+                await dispatch(createConference(formData)).unwrap();
+            }
             dispatch(fetchConferences({limit: 100, offset: 0}));
             onClose();
         } catch (err: any) {
-            setError(err?.message || 'Ошибка при создании');
+            setError(err?.message || 'Не удалось сохранить конференцию');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -36,7 +48,7 @@ export const CreateConferenceModal = ({onClose}: Props) => {
         <div className="add_user_modal_container" onClick={onClose}>
             <div className="add_user_modal" onClick={e => e.stopPropagation()} style={{maxWidth: '500px'}}>
                 <div className="add_user_modal_header">
-                    <h2 className="add_user_modal_title">Создать конференцию</h2>
+                    <h2 className="add_user_modal_title">{conference ? 'Изменить конференцию' : 'Создать конференцию'}</h2>
                     <button className="icon_btn" onClick={onClose}>✖</button>
                 </div>
 
@@ -93,7 +105,7 @@ export const CreateConferenceModal = ({onClose}: Props) => {
                         <select
                             className="modal_input"
                             value={formData.badge_type}
-                            onChange={e => setFormData({...formData, badge_type: e.target.value as any})}
+                            onChange={e => setFormData({...formData, badge_type: e.target.value as ConferenceIn['badge_type']})}
                         >
                             <option value="single">Односторонний</option>
                             <option value="double">Двусторонний</option>
@@ -103,7 +115,9 @@ export const CreateConferenceModal = ({onClose}: Props) => {
 
                     {error && <div style={{color: 'var(--danger)', fontSize: '14px'}}>{error}</div>}
 
-                    <button type="submit" className="btn btn_primary" style={{marginTop: '16px'}}>Создать</button>
+                    <button type="submit" className="btn btn_primary" disabled={saving} style={{marginTop: '16px'}}>
+                        {conference ? 'Сохранить' : 'Создать'}
+                    </button>
                 </form>
             </div>
         </div>

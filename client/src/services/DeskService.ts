@@ -9,15 +9,17 @@ export class DeskService {
     }
 
     static async reprint(id: number): Promise<AxiosResponse<PrintJobRefOut>> {
-        return adminApi.post<PrintJobRefOut>(`/participants/${id}/reprint`);
+        return adminApi.post<PrintJobRefOut>(`/participants/${id}/reprint`, undefined, {
+            headers: {'Idempotency-Key': crypto.randomUUID()},
+        });
     }
 
     static async foreignCode(id: number): Promise<AxiosResponse<PrintJobRefOut>> {
         return adminApi.post<PrintJobRefOut>(`/participants/${id}/foreign-code`);
     }
 
-    static async getPrintJob(id: number): Promise<AxiosResponse<PrintJobOut>> {
-        return adminApi.get<PrintJobOut>(`/print-jobs/${id}`);
+    static async getPrintJob(id: number, signal?: AbortSignal): Promise<AxiosResponse<PrintJobOut>> {
+        return adminApi.get<PrintJobOut>(`/print-jobs/${id}`, {signal});
     }
 
     static async listPrinters(): Promise<AxiosResponse<PrinterOut[]>> {

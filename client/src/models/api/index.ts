@@ -22,9 +22,15 @@ export type ConferenceOut = components['schemas']['ConferenceOut'];
 export type ActiveConferenceOut = components['schemas']['ActiveConferenceOut'];
 export type ConferenceIn = components['schemas']['ConferenceIn'];
 
-export type TemplateOut = components['schemas']['TemplateOut'];
+type TemplateWarnings = {warnings?: {element: number; code: 'near_edge'; message: string}[]};
+export type TemplateOut = components['schemas']['TemplateOut'] & TemplateWarnings;
 export type TemplateFieldOut = components['schemas']['TemplateFieldOut'];
 export type TemplateIn = components['schemas']['TemplateIn'];
+export type TemplateElement = components['schemas']['TemplateElement'];
+export type TemplateSaveOut = components['schemas']['TemplateSaveOut'] & TemplateWarnings;
+export type OverflowItem = components['schemas']['OverflowItem'];
+export type ResizeIn = components['schemas']['ResizeIn'];
+export type TemplateTestPrintIn = components['schemas']['TemplateTestPrintIn'];
 
 export type ScanFound = components['schemas']['ScanFound'];
 export type ScanNotFound = components['schemas']['ScanNotFound'];
@@ -45,7 +51,9 @@ export type TerminalPrintJobOut = components['schemas']['TerminalPrintJobOut'];
 
 export type ErrorOut = components['schemas']['ErrorOut'];
 
-export type ImportReportOut = components['schemas']['ImportReportOut'];
+export type ImportReportOut = components['schemas']['ImportReportOut'] & {
+    photos?: {total: number; loaded: number; failed: number; pending: number};
+};
 export type ImportAcceptedOut = components['schemas']['ImportAcceptedOut'];
 
 export type PrintJobOut = components['schemas']['PrintJobOut'];

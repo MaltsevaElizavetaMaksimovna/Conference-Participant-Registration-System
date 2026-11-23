@@ -9,6 +9,8 @@ interface ImportState {
     uploadError: Errors | null;
     reportStatus: 'idle' | 'loading' | 'success' | 'error';
     report: ImportReportOut | null;
+    reportError: Errors | null;
+    batch: {conferenceId: number; batchId: number} | null;
 }
 
 const initialState: ImportState = {
@@ -16,9 +18,9 @@ const initialState: ImportState = {
     uploadError: null,
     reportStatus: 'idle',
     report: null,
+    reportError: null,
+    batch: null,
 };
-
-let mockReportCallCount = 0;
 
 
 export const uploadImportFile = createAsyncThunk<
@@ -26,22 +28,10 @@ export const uploadImportFile = createAsyncThunk<
     { conferenceId: number; file: File },
     { rejectValue: Errors }
 >('import/upload',
-    // async ({conferenceId, file}, {rejectWithValue}) => {
-    //     try {
-    //         const response = await ImportService.uploadFile(conferenceId, file);
-    //         return response.data;
-    //     } catch (e) {
-    //         return rejectWithValue(parseError(e));
-    //     }
-    // }
     async ({conferenceId, file}, {rejectWithValue}) => {
         try {
-            // 🟢 МОК: Имитация загрузки
-            console.log('🟢 [MOCK] Загрузка файла:', file.name);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Задержка 1 сек
-            mockReportCallCount = 0; // Сбрасываем счетчик
-
-            return {batch_id: 999};
+            const response = await ImportService.uploadFile(conferenceId, file);
+            return response.data;
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
@@ -53,57 +43,10 @@ export const fetchImportReport = createAsyncThunk<
     { conferenceId: number; batchId: number },
     { rejectValue: Errors }
 >('import/fetchReport',
-    // async ({conferenceId, batchId}, {rejectWithValue}) => {
-    //     try {
-    //         const response = await ImportService.getReport(conferenceId, batchId);
-    //         return response.data;
-    //     } catch (e) {
-    //         return rejectWithValue(parseError(e));
-    //     }
-    // }
     async ({conferenceId, batchId}, {rejectWithValue}) => {
         try {
-            // 🟢 МОК: Имитация получения отчета
-            console.log(`🟢 [MOCK] Запрос отчета #${mockReportCallCount + 1}`);
-            await new Promise(resolve => setTimeout(resolve, 500));
-            mockReportCallCount += 1;
-
-            if (mockReportCallCount === 1) {
-                // Первый запрос — в процессе
-                return {
-                    batch_id: batchId, conference_id: conferenceId, source: 'file',
-                    file_name: 'participants.xlsx', status: 'running',
-                    summary: 'Обработка файла...', total_rows: 0, loaded: 0,
-                    updated: 0, unchanged: 0, skipped: 0, errors: [], conflicts: [],
-                    missing: [], warnings: [], started_at: new Date().toISOString(),
-                    finished_at: null,
-                };
-            }
-
-            // Второй запрос — готово (с ошибками и предупреждениями)
-            return {
-                batch_id: batchId, conference_id: conferenceId, source: 'file',
-                file_name: 'participants.xlsx', status: 'done',
-                summary: 'Загружено: 298, пропущено: 2', total_rows: 300,
-                loaded: 295, updated: 3, unchanged: 0, skipped: 2,
-                errors: [
-                    {row: 15, reason: 'не указана фамилия', message: 'Строка 15: не указана фамилия'},
-                    {row: 42, reason: 'дубликат', message: 'Строка 42: идентификатор уже существует'},
-                ],
-                conflicts: [
-                    {
-                        participant_id: 17,
-                        external_id: 'P-1001',
-                        field: 'organization',
-                        system_value: 'ООО Ромашка',
-                        file_value: 'ООО Ромашка (старое)'
-                    }
-                ],
-                missing: [],
-                warnings: ['Строка 21: фото не загружено'],
-                started_at: new Date(Date.now() - 3000).toISOString(),
-                finished_at: new Date().toISOString(),
-            };
+            const response = await ImportService.getReport(conferenceId, batchId);
+            return response.data;
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
@@ -114,21 +57,20 @@ export const importSlice = createSlice({
     name: 'import',
     initialState,
     reducers: {
-        resetImport(state) {
-            state.uploadStatus = 'idle';
-            state.uploadError = null;
-            state.reportStatus = 'idle';
-            state.report = null;
-        },
+        resetImport: () => initialState,
     },
     extraReducers: (builder) => {
         builder.addCase(uploadImportFile.pending, (state) => {
             state.uploadStatus = 'loading';
             state.uploadError = null;
             state.report = null;
+            state.batch = null;
+            state.reportError = null;
+            state.reportStatus = 'idle';
         });
-        builder.addCase(uploadImportFile.fulfilled, (state) => {
+        builder.addCase(uploadImportFile.fulfilled, (state, action) => {
             state.uploadStatus = 'success';
+            state.batch = {conferenceId: action.meta.arg.conferenceId, batchId: action.payload.batch_id};
         });
         builder.addCase(uploadImportFile.rejected, (state, action) => {
             state.uploadStatus = 'error';
@@ -139,10 +81,13 @@ export const importSlice = createSlice({
             state.reportStatus = 'loading';
         });
         builder.addCase(fetchImportReport.fulfilled, (state, action) => {
+            if (state.batch?.batchId !== action.meta.arg.batchId) return;
             state.reportStatus = 'success';
             state.report = action.payload;
         });
-        builder.addCase(fetchImportReport.rejected, (state) => {
+        builder.addCase(fetchImportReport.rejected, (state, action) => {
+            if (state.batch?.batchId !== action.meta.arg.batchId || action.meta.aborted) return;
+            state.reportError = action.payload ?? null;
             state.reportStatus = 'error';
         });
     },

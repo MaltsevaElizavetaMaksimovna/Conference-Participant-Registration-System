@@ -10,11 +10,12 @@ import {
 
 export const ParticipantCardModal = () => {
     const dispatch = useAppDispatch();
-    const {selected: participant} = useAppSelector(state => state.adminReducer);
+    const {selected: participant, selectedId, selectedError, actionError, actionStatus} = useAppSelector(state => state.adminReducer);
 
     const selectedStatus = useAppSelector(state => state.adminReducer.selectedStatus);
 
     const [isEditing, setIsEditing] = useState(false);
+    const [reprinting, setReprinting] = useState(false);
     const [formData, setFormData] = useState({
         last_name: '',
         first_name: '',
@@ -25,14 +26,14 @@ export const ParticipantCardModal = () => {
 
     // Запрос полных данных
     useEffect(() => {
-        if (participant?.id) {
-            dispatch(fetchParticipantById(participant.id));
+        if (selectedId !== null) {
+            dispatch(fetchParticipantById(selectedId));
         }
-    }, [dispatch, participant?.id]);
+    }, [dispatch, selectedId]);
 
     // Синхронизация формы при загрузке данных
     useEffect(() => {
-        if (participant) {
+        if (participant && !isEditing) {
             setFormData({
                 last_name: participant.last_name || '',
                 first_name: participant.first_name || '',
@@ -41,17 +42,16 @@ export const ParticipantCardModal = () => {
                 organization: participant.organization || '',
             });
         }
-    }, [participant]);
+    }, [participant, isEditing]);
 
-    if (!participant) return null;
-
-    if (selectedStatus === 'loading' || !participant.actions) {
+    if (!participant) {
         return (
             <div className="add_user_modal_container" onClick={() => dispatch(clearSelected())}>
                 <div className="add_user_modal" onClick={e => e.stopPropagation()}
                      style={{padding: '40px', textAlign: 'center'}}>
-                    <div className="terminal_spinner" style={{margin: '0 auto 20px'}}/>
-                    <p>Загрузка карточки участника...</p>
+                    {selectedStatus !== 'error' && <div className="terminal_spinner" style={{margin: '0 auto 20px'}}/>}
+                    <p>{selectedStatus === 'error' ? selectedError?.message ?? 'Не удалось загрузить карточку' : 'Загрузка карточки участника...'}</p>
+                    <button className="icon_btn" onClick={() => dispatch(clearSelected())}>Закрыть</button>
                 </div>
             </div>
         );
@@ -63,9 +63,9 @@ export const ParticipantCardModal = () => {
         dispatch(registerParticipantFromDesk({id: participant.id, data: {with_sticker: withSticker}}));
     };
 
-    const handleSaveEdit = () => {
-        dispatch(updateParticipant({id: participant.id, data: formData}));
-        setIsEditing(false);
+    const handleSaveEdit = async () => {
+        const result = await dispatch(updateParticipant({id: participant.id, data: formData}));
+        if (updateParticipant.fulfilled.match(result)) setIsEditing(false);
     };
 
     return (
@@ -79,9 +79,10 @@ export const ParticipantCardModal = () => {
                 </div>
 
                 <div style={{padding: '24px'}}>
+                    {actionError && <p role="alert">{actionError.message}</p>}
                     <div style={{display: 'flex', gap: '24px', marginBottom: '24px'}}>
                         {participant.photo_url ? (
-                            <img src={`http://localhost:8000${participant.photo_url}`} alt="Фото"
+                            <img src={participant.photo_url} alt="Фото"
                                  style={{width: '120px', height: '160px', objectFit: 'cover', borderRadius: '8px'}}/>
                         ) : (
                             <div style={{
@@ -157,6 +158,8 @@ export const ParticipantCardModal = () => {
                         </div>
                     )}
 
+                    {participant.profile_url && <p><a href={participant.profile_url} target="_blank" rel="noreferrer">Профиль участника</a></p>}
+                    <p>Печатей: {print_count}. Повторных сканирований: {rescan_count}.</p>
                     {/* Флаги (пометки) */}
                     {flags.length > 0 && (
                         <div style={{marginBottom: '24px'}}>
@@ -198,16 +201,26 @@ export const ParticipantCardModal = () => {
                                 {actions.can_register && (
                                     <>
                                         <button className="btn btn_primary"
+                                                disabled={actionStatus === 'loading'}
                                                 onClick={() => handleRegister(true)}>Зарегистрировать (с наклейкой)
                                         </button>
                                         <button className="btn btn_secondary"
+                                                disabled={actionStatus === 'loading'}
                                                 onClick={() => handleRegister(false)}>Зарегистрировать (без наклейки)
                                         </button>
                                     </>
                                 )}
                                 {actions.can_reprint && (
                                     <button className="btn btn_secondary"
-                                            onClick={() => dispatch(reprintSticker(participant.id))}>Напечатать
+                                            disabled={reprinting || actionStatus === 'loading'}
+                                            onClick={async () => {
+                                                setReprinting(true);
+                                                try {
+                                                    await dispatch(reprintSticker(participant.id));
+                                                } finally {
+                                                    setReprinting(false);
+                                                }
+                                            }}>Напечатать
                                         повторно</button>
                                 )}
                                 {actions.can_foreign_code && (

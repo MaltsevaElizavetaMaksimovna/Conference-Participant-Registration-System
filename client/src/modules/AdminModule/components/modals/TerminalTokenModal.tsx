@@ -1,19 +1,27 @@
+import {useState} from 'react';
+
 interface Props {
     token: string;
     onClose: () => void;
+    title?: string;
 }
 
-export const TerminalTokenModal = ({ token, onClose }: Props) => {
-    const handleCopy = () => {
-        navigator.clipboard.writeText(token);
-        alert('Токен скопирован в буфер обмена');
+export const TerminalTokenModal = ({token, onClose, title = 'Токен терминала'}: Props) => {
+    const [copyStatus, setCopyStatus] = useState('');
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(token);
+            setCopyStatus('Токен скопирован');
+        } catch {
+            setCopyStatus('Не удалось скопировать. Выделите токен и скопируйте вручную.');
+        }
     };
 
     return (
         <div className="add_user_modal_container" onClick={onClose}>
             <div className="add_user_modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
                 <div className="add_user_modal_header">
-                    <h2 className="add_user_modal_title">Токен терминала</h2>
+                    <h2 className="add_user_modal_title">{title}</h2>
                     <button className="icon_btn" onClick={onClose}>✖</button>
                 </div>
 
@@ -32,6 +40,7 @@ export const TerminalTokenModal = ({ token, onClose }: Props) => {
                         {token}
                     </div>
                     <button className="btn btn_primary" onClick={handleCopy}>Скопировать</button>
+                    {copyStatus && <p role="status">{copyStatus}</p>}
                 </div>
             </div>
         </div>
