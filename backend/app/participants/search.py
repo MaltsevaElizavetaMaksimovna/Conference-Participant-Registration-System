@@ -56,7 +56,11 @@ def _filter_condition(filter: ParticipantFilter) -> ColumnElement[bool] | None:
 
 
 def _order_by(sort: ParticipantSort) -> list[ColumnElement[Any]]:
-    by_name: list[ColumnElement[Any]] = [Participant.search_norm.asc(), Participant.id.asc()]
+    # Нормализованное ФИО должно давать одинаковые страницы при разных локалях PostgreSQL.
+    by_name: list[ColumnElement[Any]] = [
+        Participant.search_norm.collate("C").asc(),
+        Participant.id.asc(),
+    ]
     match sort:
         case "registered_at":
             return [Participant.registered_at.asc().nulls_last(), *by_name]

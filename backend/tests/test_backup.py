@@ -118,12 +118,14 @@ def test_make_backup_nonexistent_db(database_url: str, tmp_path: Path) -> None:
         assert tmps == []
 
 
-def test_password_not_in_args_and_env(
+def test_password_only_in_child_environment_and_masked_in_error(
     database_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Пароль передаётся только через PGPASSWORD и отсутствует в args и текстах ошибок."""
-    secret = "secret-pass-123"
-    auth_url = make_url(database_url).set(password=secret).render_as_string(hide_password=False)
+    url = make_url(database_url)
+    # У локального pgserver может быть trust, а в CI пароль должен совпадать с паролем сервиса.
+    secret = url.password or "regsys-synthetic-backup-test"
+    auth_url = url.set(password=secret).render_as_string(hide_password=False)
     settings = Settings(
         database_url=auth_url,
         backup_dir=tmp_path / "b",
@@ -131,12 +133,12 @@ def test_password_not_in_args_and_env(
         backup_keep=3,
     )
 
-    recorded_calls: list[tuple[list[str], dict[str, str]]] = []
+    recorded_calls: list[tuple[list[str], str | None]] = []
     real_run = subprocess.run
 
     def wrapped_run(cmd: Any, *args: Any, **kwargs: Any) -> Any:
         env = kwargs.get("env") or {}
-        recorded_calls.append((list(cmd), dict(env)))
+        recorded_calls.append((list(cmd), env.get("PGPASSWORD")))
         return real_run(cmd, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", wrapped_run)
@@ -145,26 +147,20 @@ def test_password_not_in_args_and_env(
     assert files.dump.is_file()
     assert len(recorded_calls) >= 1
 
-    for cmd, env in recorded_calls:
+    for cmd, pgpassword in recorded_calls:
         for arg in cmd:
             assert secret not in arg
-        assert env.get("PGPASSWORD") == secret
+        assert pgpassword == secret
 
-    # Проверка, что текст BackupError при ошибке не содержит secret
-    bad_url = (
-        make_url(database_url)
-        .set(database="no_such_db", password=secret)
-        .render_as_string(hide_password=False)
-    )
-    bad_settings = Settings(
-        database_url=bad_url,
-        backup_dir=tmp_path / "b_bad",
-        photo_dir=tmp_path / "photos",
-        backup_keep=3,
-    )
+    # Даже если утилита вернула пароль в stderr, сообщение приложения его скрывает.
+    def failed_run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1, stderr=f"pg_dump failed: {secret}")
+
+    monkeypatch.setattr(subprocess, "run", failed_run)
     with pytest.raises(BackupError) as exc_info:
-        make_backup(bad_settings)
+        make_backup(settings)
     assert secret not in str(exc_info.value)
+    assert "pg_dump failed: ******" in str(exc_info.value)
 
 
 def test_rotate(tmp_path: Path) -> None:
