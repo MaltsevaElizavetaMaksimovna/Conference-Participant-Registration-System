@@ -1,42 +1,56 @@
 import React, { useState } from 'react';
 import { useAppDispatch } from '~/hooks/redux';
-import { createPrinter } from '~/store/reducers/SettingsSlice';
+import {createPrinter, fetchPrinters} from '~/store/reducers/SettingsSlice';
+import type {PrinterAdminOut} from '~/models/api';
+import {AdminService} from '~/services/AdminService';
+import {parseError} from '~/utils/ParseError';
+
+const printerFields = [
+    ['dpi', 'Разрешение, DPI', 100, 1200, 1],
+    ['density', 'Плотность', 0, 15, 1],
+    ['speed', 'Скорость', 1, 6, 1],
+    ['offset_x_mm', 'Сдвиг по X, мм', -50, 50, 0.01],
+    ['offset_y_mm', 'Сдвиг по Y, мм', -50, 50, 0.01],
+] as const;
 
 interface Props {
     onClose: () => void;
+    printer?: PrinterAdminOut;
 }
 
-export const CreatePrinterModal = ({ onClose }: Props) => {
+export const CreatePrinterModal = ({onClose, printer}: Props) => {
     const dispatch = useAppDispatch();
     const [formData, setFormData] = useState({
-        name: '',
-        windows_printer_name: '',
-        dpi: 203,
-        density: 10,
-        speed: 3,
+        name: printer?.name ?? '', windows_printer_name: printer?.windows_printer_name ?? '',
+        dpi: printer?.dpi ?? 203, density: printer?.density ?? 10, speed: printer?.speed ?? 3,
+        offset_x_mm: printer?.offset_x_mm ?? 0, offset_y_mm: printer?.offset_y_mm ?? 0,
     });
     const [error, setError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
 
     const handleSubmit = async (e: React.SubmitEvent) => {
         e.preventDefault();
+        if (saving) return;
         if (!formData.name.trim()) {
             setError('Название принтера обязательно');
             return;
         }
 
+        setSaving(true);
+        setError(null);
+        const input = {...formData, windows_printer_name: formData.windows_printer_name.trim() || null};
         try {
-            await dispatch(createPrinter({
-                name: formData.name,
-                windows_printer_name: formData.windows_printer_name || null,
-                dpi: formData.dpi,
-                density: formData.density,
-                speed: formData.speed,
-                offset_x_mm: 0,
-                offset_y_mm: 0,
-            })).unwrap();
+            if (printer) {
+                await AdminService.updatePrinter(printer.id, input);
+                void dispatch(fetchPrinters());
+            } else {
+                await dispatch(createPrinter(input)).unwrap();
+            }
             onClose();
         } catch (err: any) {
-            setError(err?.message || 'Ошибка при создании принтера');
+            setError(printer ? parseError(err).message : err?.message || 'Не удалось добавить принтер');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -44,7 +58,7 @@ export const CreatePrinterModal = ({ onClose }: Props) => {
         <div className="add_user_modal_container" onClick={onClose}>
             <div className="add_user_modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
                 <div className="add_user_modal_header">
-                    <h2 className="add_user_modal_title">Добавить принтер</h2>
+                    <h2 className="add_user_modal_title">{printer ? 'Изменить принтер' : 'Добавить принтер'}</h2>
                     <button className="icon_btn" onClick={onClose}>✖</button>
                 </div>
 
@@ -64,30 +78,19 @@ export const CreatePrinterModal = ({ onClose }: Props) => {
                         onChange={e => setFormData({...formData, windows_printer_name: e.target.value})}
                     />
 
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '12px', color: 'var(--tpu-gray-text)', marginBottom: '4px', display: 'block' }}>DPI (разрешение)</label>
-                            <input
-                                type="number"
-                                className="modal_input"
-                                value={formData.dpi}
-                                onChange={e => setFormData({...formData, dpi: Number(e.target.value)})}
-                            />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '12px', color: 'var(--tpu-gray-text)', marginBottom: '4px', display: 'block' }}>Плотность (0-15)</label>
-                            <input
-                                type="number"
-                                className="modal_input"
-                                value={formData.density}
-                                onChange={e => setFormData({...formData, density: Number(e.target.value)})}
-                            />
-                        </div>
+                    <div className="template_grid">
+                        {printerFields.map(([key, label, min, max, step]) => <label key={key}>{label}
+                            <input className="modal_input" type="number" required min={min} max={max} step={step}
+                                value={Number.isFinite(formData[key]) ? formData[key] : ''}
+                                onChange={e => setFormData({...formData, [key]: e.target.valueAsNumber})}/>
+                        </label>)}
                     </div>
 
                     {error && <div style={{ color: 'var(--danger)', fontSize: '14px' }}>{error}</div>}
 
-                    <button type="submit" className="btn btn_primary" style={{ marginTop: '16px' }}>Добавить принтер</button>
+                    <button type="submit" className="btn btn_primary" disabled={saving} style={{marginTop: '16px'}}>
+                        {printer ? 'Сохранить' : 'Добавить принтер'}
+                    </button>
                 </form>
             </div>
         </div>

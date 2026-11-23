@@ -1,18 +1,22 @@
 import {ConfirmFrame, LoadingFrame, PrintingFrame, ScanFrame} from "~/modules/ScanModule";
 import {useAppDispatch, useAppSelector} from "~/hooks/redux";
 import {useEffect} from "react";
-import { terminalMounted} from "~/store/reducers/TerminalSlice";
+import {terminalMounted, terminalUnmounted} from "~/store/reducers/TerminalSlice";
 import {SuccessFrame} from "~/modules/ScanModule/components/SuccessFrame";
 import {ErrorFrame} from "~/modules/ScanModule/components/ErrorFrame";
 import {OfflineFrame} from "~/modules/ScanModule/components/OfflineFrame";
 import {DisabledFrame} from "~/modules/ScanModule/components/DisabledFrame";
+import {useUsbScanner} from "~/modules/ScanModule/useUsbScanner";
 
 
 export const UserPanel = () => {
     const dispatch = useAppDispatch();
-    const {connection, screen} = useAppSelector(state => state.terminalReducer);
+    const {connection, screen, ping} = useAppSelector(state => state.terminalReducer);
+    useUsbScanner(connection === 'online' && !!ping?.conference &&
+        (screen === 'idle' || screen === 'success' || screen === 'error'));
     useEffect(() => {
-        dispatch(terminalMounted())
+        dispatch(terminalMounted());
+        return () => { dispatch(terminalUnmounted()); };
     }, [dispatch])
 
     const renderContent = () => {

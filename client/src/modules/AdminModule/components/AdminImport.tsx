@@ -1,60 +1,48 @@
 import { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '~/hooks/redux';
-import { uploadImportFile, fetchImportReport, resetImport } from '~/store/reducers/ImportSlice';
+import {ImportService} from '~/services/ImportService';
+import {parseError} from '~/utils/ParseError';
+import { uploadImportFile, fetchImportReport } from '~/store/reducers/ImportSlice';
 
 export const AdminImport = () => {
     const dispatch = useAppDispatch();
 
     const activeConference = useAppSelector(state => state.conferenceReducer.active);
-    const { uploadStatus, uploadError, report, reportStatus } = useAppSelector(state => state.importReducer);
-
+    const {uploadStatus, uploadError, report, reportStatus, reportError, batch} =
+        useAppSelector(state => state.importReducer);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [downloadError, setDownloadError] = useState('');
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files?.[0] || !activeConference) return;
-        const file = e.target.files[0];
-
-        dispatch(resetImport());
-
-        try {
-            const result = await dispatch(uploadImportFile({
-                conferenceId: activeConference.id,
-                file,
-            })).unwrap();
-
-            startPolling(activeConference.id, result.batch_id);
-        } catch (err) {
-            console.error('Ошибка загрузки файла:', err);
-        }
-    };
-
-    const startPolling = (conferenceId: number, batchId: number) => {
-        if ((window as any)._importInterval) {
-            clearInterval((window as any)._importInterval);
-        }
-
-        (window as any)._importInterval = setInterval(async () => {
-            const action = await dispatch(fetchImportReport({ conferenceId, batchId }));
-
-            if (fetchImportReport.fulfilled.match(action)) {
-                const status = action.payload.status;
-                if (status !== 'running') {
-                    clearInterval((window as any)._importInterval);
-                    (window as any)._importInterval = null;
-                }
-            } else {
-                clearInterval((window as any)._importInterval);
-                (window as any)._importInterval = null;
+    useEffect(() => {
+        if (!batch || batch.conferenceId !== activeConference?.id) return;
+        let cancelled = false;
+        let timer: number | undefined;
+        const poll = async () => {
+            const result = await dispatch(fetchImportReport(batch));
+            if (!cancelled && fetchImportReport.fulfilled.match(result) &&
+                (result.payload.status === 'running' || (result.payload.photos?.pending ?? 0) > 0)) {
+                timer = window.setTimeout(poll, 2000);
             }
-        }, 2000);
+        };
+        void poll();
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [batch, activeConference?.id, dispatch]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !activeConference) return;
+        e.target.value = '';
+        void dispatch(uploadImportFile({conferenceId: activeConference.id, file}));
     };
 
     const handleDownloadTemplate = async () => {
         setIsDownloading(true);
         try {
-            // 🟢 МОК: Генерируем пустой текстовый файл
-            const content = "ID,Фамилия*,Имя*,Отчество,Должность,Организация\n";
-            const blob = new Blob([content], { type: 'text/plain' });
+            setDownloadError('');
+            const {data: blob} = await ImportService.downloadTemplate();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -63,6 +51,8 @@ export const AdminImport = () => {
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
+        } catch (error) {
+            setDownloadError(parseError(error).message);
         } finally {
             setIsDownloading(false);
         }
@@ -108,14 +98,16 @@ export const AdminImport = () => {
                 </div>
 
                 {!activeConference && <div style={{ color: 'var(--danger)', marginTop: '12px' }}>Нет активной конференции</div>}
+                {downloadError && <p role="alert">{downloadError}</p>}
                 {uploadError && <div style={{ color: 'var(--danger)', marginTop: '12px' }}>{uploadError.message}</div>}
             </div>
 
             {/* Блок отчета */}
-            {reportStatus !== 'idle' && (
+            {batch && batch.conferenceId === activeConference?.id && reportStatus !== 'idle' && (
                 <div style={{ background: 'var(--tpu-white)', padding: '24px', borderRadius: '8px', border: '1px solid var(--tpu-border)' }}>
                     <h2 style={{ fontSize: '18px', marginBottom: '16px' }}>Отчёт об импорте</h2>
 
+                    {reportError && <p role="alert">{reportError.message}</p>}
                     {reportStatus === 'loading' && !report && <p>Обработка файла... Пожалуйста, подождите.</p>}
 
                     {report && (
@@ -135,7 +127,7 @@ export const AdminImport = () => {
                                     <ul style={{ listStyle: 'none', padding: 0 }}>
                                         {report.errors.map((err, i) => (
                                             <li key={i} style={{ fontSize: '14px', marginBottom: '4px' }}>
-                                                {err.row ? `Строка ${err.row}: ` : ''} {err.message}
+                                                {err.message}
                                             </li>
                                         ))}
                                     </ul>
@@ -152,6 +144,13 @@ export const AdminImport = () => {
                                             </li>
                                         ))}
                                     </ul>
+                                </div>
+                            )}
+
+                            {report.missing.length > 0 && (
+                                <div>
+                                    <h3>Отсутствуют в новом файле</h3>
+                                    <ul>{report.missing.map(p => <li key={p.participant_id}>{p.full_name} ({p.external_id})</li>)}</ul>
                                 </div>
                             )}
 

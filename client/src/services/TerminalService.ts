@@ -13,8 +13,8 @@ import {terminalApi} from "~/api";
 export type ScanResult = ScanFound | ScanNotFound | ScanAlreadyRegistered;
 
 export class TerminalService {
-    static async ping(): Promise<AxiosResponse<PingOut>> {
-        return terminalApi.get<PingOut>('/terminal/ping');
+    static async ping(signal?: AbortSignal): Promise<AxiosResponse<PingOut>> {
+        return terminalApi.get<PingOut>('/terminal/ping', {signal});
     }
 
     static async scan(raw: string): Promise<AxiosResponse<ScanResult>> {

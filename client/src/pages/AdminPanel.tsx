@@ -1,43 +1,97 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {useAppDispatch, useAppSelector} from '~/hooks/redux';
 import {logout} from '~/store/reducers/AuthSlice';
 import {
     fetchParticipants,
     fetchParticipantsStats,
     setFilters,
-    setSelected,
+    selectParticipant,
+    clearSelected,
+    fetchParticipantById,
+    updateStatsFromSSE,
 } from '~/store/reducers/AdminSlice';
-import {useLocation, useNavigate} from "react-router";
+import {useNavigate} from "react-router";
 import {ParticipantCardModal} from "~/modules/AdminModule/components/modals/ParticipantCardModal";
 import {AddParticipantModal} from "~/modules/AdminModule/components/modals/AddParticipantModal";
-import {matchesSearch} from "~/utils/SearchUtil";
+import {PanelPrinterSelect} from "~/modules/AdminModule/components/PanelPrinterSelect";
+import {BASE_URL} from "~/api/config";
+import {useStore} from "react-redux";
+import type {RootState} from "~/store/store";
 
 
 export const AdminPanel = () => {
     const dispatch = useAppDispatch();
     const navigate = useNavigate();
-    const location = useLocation();
+    const store = useStore<RootState>();
 
 
-    const user = useAppSelector(state => state.authReducer.user);
-    const {participants, listStatus, filters, stats} = useAppSelector(state => state.adminReducer);
-
-    const selectedParticipant = useAppSelector(state => state.adminReducer.selected);
-    const actionStatus = useAppSelector(state => state.adminReducer.actionStatus);
-    const {active: activeConference} = useAppSelector(state => state.conferenceReducer)
-
+    const {user, loginError} = useAppSelector(state => state.authReducer);
+    const {participants, listStatus, listError, listTotal, filters, stats, selectedId} =
+        useAppSelector(state => state.adminReducer);
+    const conferenceId = useAppSelector(state => state.conferenceReducer.active?.id);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [reconnecting, setReconnecting] = useState(false);
 
-    // useEffect(() => {
-    //     if (activeConference) {
-    //         dispatch(fetchParticipants());
-    //         dispatch(fetchParticipantsStats());
-    //     }
-    // }, [dispatch, activeConference, filters]);
+    useEffect(() => {
+        const request = dispatch(fetchParticipants(filters));
+        return () => { request.abort(); };
+    }, [dispatch, filters, conferenceId]);
+
+    useEffect(() => {
+        if (listStatus === 'success' && filters.offset > 0 && filters.offset >= listTotal) {
+            dispatch(setFilters({offset: Math.max(0, Math.ceil(listTotal / filters.limit) - 1) * filters.limit}));
+        }
+    }, [dispatch, filters.limit, filters.offset, listStatus, listTotal]);
+
+    useEffect(() => {
+        const statsRequest = dispatch(fetchParticipantsStats());
+        const events = new EventSource(BASE_URL + '/events/stream', {withCredentials: true});
+        let refreshTimer: number | undefined;
+        let listDirty = false;
+        let cardDirty = false;
+
+        function refresh() {
+            refreshTimer = undefined;
+            if (listDirty) dispatch(fetchParticipants());
+            const {selectedId} = store.getState().adminReducer;
+            if (cardDirty && selectedId !== null) dispatch(fetchParticipantById(selectedId));
+            listDirty = false;
+            cardDirty = false;
+        }
+
+        function scheduleRefresh(id?: number) {
+            listDirty = true;
+            if (id === undefined || id === store.getState().adminReducer.selectedId) cardDirty = true;
+            if (refreshTimer === undefined) refreshTimer = window.setTimeout(refresh, 150);
+        }
+
+        events.onopen = () => {
+            setReconnecting(false);
+            scheduleRefresh();
+        };
+        events.onerror = () => setReconnecting(true);
+        events.addEventListener('stats', event => {
+            try {
+                const stats = JSON.parse(event.data);
+                if (Number.isInteger(stats.registered) && Number.isInteger(stats.total)) {
+                    dispatch(updateStatsFromSSE(stats));
+                }
+            } catch { scheduleRefresh(); }
+        });
+        events.addEventListener('participant_updated', event => {
+            try { scheduleRefresh(JSON.parse(event.data).id); }
+            catch { scheduleRefresh(); }
+        });
+        return () => {
+            events.close();
+            window.clearTimeout(refreshTimer);
+            statsRequest.abort();
+            dispatch(clearSelected());
+        };
+    }, [dispatch, store, conferenceId]);
 
     const handleLogout = async () => {
-        await dispatch(logout());
-        navigate('/login');
+        if (logout.fulfilled.match(await dispatch(logout()))) navigate('/login');
     };
 
     const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -48,24 +102,6 @@ export const AdminPanel = () => {
         dispatch(setFilters({filter: newFilter, offset: 0}));
     };
 
-    const displayedParticipants = useMemo(() => {
-        return participants.filter(p => {
-            const matchesQuery = matchesSearch(p.full_name, filters.q);
-            if (!matchesQuery) return false;
-
-            if (filters.filter === 'registered') {
-                return p.status === 'registered' || p.status === 'registered_no_sticker';
-            }
-            if (filters.filter === 'not_registered') {
-                return p.status === 'not_registered';
-            }
-            if (filters.filter === 'flagged') {
-                return p.flags && p.flags.length > 0;
-            }
-            return true;
-        });
-    }, [participants, filters.q, filters.filter]);
-
     return (
         <>
             <main className="admin_main">
@@ -73,7 +109,7 @@ export const AdminPanel = () => {
                     <h1>Участники</h1>
 
                     <div style={{fontSize: '16px', fontWeight: 600, color: 'var(--tpu-green)'}}>
-                        Зарегистрировано: {stats?.registered || 0} из {stats?.total || 0}
+                        Зарегистрировано: {stats?.registered ?? "—"} из {stats?.total ?? "—"}
                     </div>
 
                     <div style={{display: 'flex', gap: '16px', alignItems: 'center'}}>
@@ -84,6 +120,9 @@ export const AdminPanel = () => {
                     </div>
                 </header>
 
+                {loginError && <p role="alert">{loginError.message}</p>}
+                {reconnecting && <p role="status">Восстанавливаем связь с панелью…</p>}
+                {user?.permissions.includes('stickers.print') && <PanelPrinterSelect/>}
                 <div className="search_row">
                     <input
                         className="input"
@@ -94,6 +133,7 @@ export const AdminPanel = () => {
                     <button
                         className="btn btn_primary"
                         style={{flex: 'none', padding: '0 24px'}}
+                        disabled={!user?.permissions.includes("participants.add")}
                         onClick={() => setIsAddModalOpen(true)}
                     >
                         + Добавить вручную
@@ -126,22 +166,28 @@ export const AdminPanel = () => {
                         </tr>
                         </thead>
                         <tbody>
+                        {listStatus === 'error' && (
+                            <tr><td colSpan={4} role="alert">
+                                {listError?.message ?? 'Не удалось загрузить список'}{' '}
+                                <button className="icon_btn" onClick={() => dispatch(fetchParticipants())}>Повторить</button>
+                            </td></tr>
+                        )}
                         {listStatus === 'loading' && (
                             <tr>
                                 <td colSpan={4} style={{textAlign: 'center'}}>Загрузка...</td>
                             </tr>
                         )}
 
-                        {listStatus === 'success' && displayedParticipants.length === 0 && (
+                        {listStatus === 'success' && participants.length === 0 && (
                             <tr>
                                 <td colSpan={4} style={{textAlign: 'center'}}>Ничего не найдено</td>
                             </tr>
                         )}
 
-                        {listStatus === 'success' && displayedParticipants.map(p => (
+                        {listStatus === 'success' && participants.map(p => (
                             <tr
                                 key={p.id}
-                                onClick={() => dispatch(setSelected(p as any))}
+                                onClick={() => dispatch(selectParticipant(p.id))}
                                 style={{cursor: 'pointer'}}
                                 className="table_row_hover"
                             >
@@ -169,9 +215,18 @@ export const AdminPanel = () => {
                         </tbody>
                     </table>
                 </div>
+                {listTotal > filters.limit && (
+                    <nav aria-label="Страницы участников" className="search_row">
+                        <button className="btn btn_secondary" disabled={!filters.offset}
+                                onClick={() => dispatch(setFilters({offset: Math.max(0, filters.offset - filters.limit)}))}>Назад</button>
+                        <span>{filters.offset + 1}–{Math.min(filters.offset + filters.limit, listTotal)} из {listTotal}</span>
+                        <button className="btn btn_secondary" disabled={filters.offset + filters.limit >= listTotal}
+                                onClick={() => dispatch(setFilters({offset: filters.offset + filters.limit}))}>Далее</button>
+                    </nav>
+                )}
             </main>
 
-            {selectedParticipant && <ParticipantCardModal/>}
+            {selectedId !== null && <ParticipantCardModal key={selectedId}/>}
             {isAddModalOpen && <AddParticipantModal onClose={() => setIsAddModalOpen(false)}/>}
         </>
     );

@@ -16,11 +16,9 @@ export const RoleModal = ({role, onClose}: Props) => {
     const [selectedPerms, setSelectedPerms] = useState<string[]>(role?.permissions || []);
     const [error, setError] = useState<string | null>(null);
 
-    // useEffect(() => {
-    //     if (permissions.length === 0) {
-    //         dispatch(fetchPermissions());
-    //     }
-    // }, [dispatch, permissions.length]);
+    useEffect(() => {
+        dispatch(fetchPermissions());
+    }, [dispatch]);
 
     const handleTogglePerm = (code: string) => {
         setSelectedPerms(prev =>

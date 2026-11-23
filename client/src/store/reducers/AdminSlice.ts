@@ -1,4 +1,4 @@
-import {createAsyncThunk, createSlice, type PayloadAction} from "@reduxjs/toolkit";
+import {createAsyncThunk, createSlice, isAnyOf, type PayloadAction} from "@reduxjs/toolkit";
 import type {
     CheckDuplicatesIn,
     DuplicatesOut,
@@ -20,6 +20,10 @@ type ParticipantFilters = Required<ParticipantListParams>;
 export interface AdminState {
     participants: ParticipantShort[];
     listTotal: number;
+    listRequestId: string | null;
+    statsRequestId: string | null;
+    selectedId: number | null;
+    cardRequestId: string | null;
     listStatus: AsyncStatus;
     listError: Errors | null;
 
@@ -47,56 +51,14 @@ const initialFilters: ParticipantFilters = {
     offset: 0,
 };
 
-const MOCK_PARTICIPANTS: ParticipantShort[] = [
-    {
-        id: 1,
-        full_name: 'Иванов Иван Иванович',
-        organization: 'ТПУ, ИШИТР',
-        status: 'registered',
-        flags: [],
-    },
-    {
-        id: 2,
-        full_name: 'Петрова Анна Сергеевна',
-        organization: 'ООО Ромашка',
-        status: 'not_registered',
-        flags: [],
-    },
-    {
-        id: 3,
-        full_name: 'Сидоров Пётр Алексеевич',
-        organization: 'Газпром',
-        status: 'registered_no_sticker',
-        flags: ['manual_added', 'sticker_not_printed'],
-    },
-    {
-        id: 4,
-        full_name: 'Фёдорова Елена Викторовна',
-        organization: 'ТГУ',
-        status: 'registered',
-        flags: ['data_changed'],
-    },
-    {
-        id: 5,
-        full_name: 'Смирнов Алексей Владимирович',
-        organization: 'ТПУ, ИШИТР',
-        status: 'registered',
-        flags: ['foreign_code'],
-    },
-    {
-        id: 6,
-        full_name: 'Кузнецов Дмитрий Олегович',
-        organization: 'Сбербанк',
-        status: 'not_registered',
-        flags: ['error_reported'],
-    },
-];
-
-
 const initialState: AdminState = {
-    participants: MOCK_PARTICIPANTS,
-    listTotal: MOCK_PARTICIPANTS.length,
-    listStatus: 'success',
+    participants: [],
+    listTotal: 0,
+    listRequestId: null,
+    statsRequestId: null,
+    selectedId: null,
+    cardRequestId: null,
+    listStatus: 'idle',
     listError: null,
 
     filters: initialFilters,
@@ -105,10 +67,7 @@ const initialState: AdminState = {
     selectedStatus: 'idle',
     selectedError: null,
 
-    stats: {
-        registered: 3, // У нас 3 человека со статусом registered
-        total: 6,      // Всего 6
-    },
+    stats: null,
 
     printers: [],
     panelPrinterId: null,
@@ -124,33 +83,13 @@ export const fetchParticipants = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'admin/fetchParticipants',
-    // async (params, {rejectWithValue, getState}) => {
-    //     try {
-    //         const state = getState() as { adminReducer: AdminState };
-    //         const current = state.adminReducer.filters
-    //         const newParams = {...current, ...params}
-    //         const response = await ParticipantService.list(newParams);
-    //         return response.data
-    //     } catch (e) {
-    //         return rejectWithValue(parseError(e));
-    //     }
-    // }
-    async (_, {rejectWithValue}) => {
-        // МОК
-        await new Promise(r => setTimeout(r, 500));
-        return {
-            items: [
-                {id: 1, full_name: 'Иванов Иван Иванович', organization: 'ТПУ', status: 'registered', flags: []},
-                {
-                    id: 2,
-                    full_name: 'Петрова Анна Сергеевна',
-                    organization: 'ООО Ромашка',
-                    status: 'not_registered',
-                    flags: []
-                },
-            ],
-            total: 2
-        };
+    async (params, {getState, rejectWithValue}) => {
+        try {
+            const {filters} = (getState() as {adminReducer: AdminState}).adminReducer;
+            return (await ParticipantService.list({...filters, ...params})).data;
+        } catch (e) {
+            return rejectWithValue(parseError(e));
+        }
     }
 )
 
@@ -176,108 +115,9 @@ export const fetchParticipantById = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'admin/fetchParticipantById',
-    // async (id, {rejectWithValue}) => {
-    //     try {
-    //         const response = await ParticipantService.getById(id);
-    //         return response.data
-    //     } catch (e) {
-    //         return rejectWithValue(parseError(e));
-    //     }
-    // }
     async (id, {rejectWithValue}) => {
         try {
-            // 🟢 МОК: Имитация задержки
-            await new Promise(resolve => setTimeout(resolve, 300));
-
-            // Базовый шаблон карточки
-            const baseCard: ParticipantCard = {
-                id,
-                external_id: `B24-${1000 + id}`,
-                last_name: 'Иванов',
-                first_name: 'Иван',
-                middle_name: 'Иванович',
-                position: 'Студент',
-                organization: 'ТПУ, ИШИТР',
-                extra: [],
-                status: 'registered',
-                registration: {
-                    at: new Date(Date.now() - 3600000).toISOString(),
-                    source: 'terminal',
-                    terminal_name: 'Терминал 1',
-                    user_login: null,
-                },
-                flags: [],
-                photo_url: null,
-                profile_url: null,
-                print_count: 1,
-                rescan_count: 0,
-                history: [],
-                events: [],
-                actions: {
-                    can_register: false,
-                    can_reprint: true,
-                    can_edit: true,
-                    can_foreign_code: true,
-                    reasons: {},
-                },
-            };
-
-            if (id === 2) {
-                return {
-                    ...baseCard,
-                    status: 'not_registered',
-                    registration: null,
-                    print_count: 0,
-                    actions: {
-                        can_register: true,
-                        can_reprint: false,
-                        can_edit: true,
-                        can_foreign_code: false,
-                        reasons: {},
-                    },
-                };
-            }
-
-            if (id === 3) {
-                return {
-                    ...baseCard,
-                    status: 'registered_no_sticker',
-                    flags: [
-                        {code: 'manual_added', at: new Date().toISOString(), by: 'admin'},
-                        {code: 'sticker_not_printed', at: new Date().toISOString(), by: 'admin'}
-                    ],
-                    actions: {
-                        can_register: false,
-                        can_reprint: true,
-                        can_edit: true,
-                        can_foreign_code: false,
-                        reasons: {},
-                    },
-                };
-            }
-
-            if (id === 4) {
-                return {
-                    ...baseCard,
-                    flags: [
-                        {code: 'data_changed', at: new Date().toISOString(), by: 'admin'},
-                        {code: 'error_reported', at: new Date().toISOString(), by: null}
-                    ],
-                    history: [
-                        {
-                            field: 'organization',
-                            old: 'ТГУ',
-                            new: 'ТПУ',
-                            source: 'manual',
-                            user_login: 'admin',
-                            at: new Date().toISOString()
-                        }
-                    ]
-                };
-            }
-
-            // Для всех остальных (id 1, 5 и т.д.) — обычный зарегистрированный
-            return baseCard;
+            return (await ParticipantService.getById(id)).data;
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
@@ -322,20 +162,12 @@ export const checkDuplicates = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'admin/checkDuplicates',
-    // async (data, {rejectWithValue}) => {
-    //     try {
-    //         const response = await ParticipantService.checkDuplicates(data);
-    //         return response.data
-    //     } catch (e) {
-    //         return rejectWithValue(parseError(e));
-    //     }
-    // }
-    async ({last_name, first_name}) => {
-        // МОК: ищем хотя бы одно совпадение по фамилии
-        const found = MOCK_PARTICIPANTS.filter(p =>
-            p.full_name.toLowerCase().includes(last_name.toLowerCase())
-        );
-        return {items: found};
+    async (data, {rejectWithValue}) => {
+        try {
+            return (await ParticipantService.checkDuplicates(data)).data;
+        } catch (e) {
+            return rejectWithValue(parseError(e));
+        }
     }
 )
 
@@ -426,14 +258,24 @@ export const adminSlice = createSlice({
     reducers: {
         setFilters(state, action: PayloadAction<Partial<ParticipantFilters>>) {
             state.filters = {...state.filters, ...action.payload};
+            state.listRequestId = null;
+            state.participants = [];
+            state.listStatus = 'loading';
         },
         resetFilters(state) {
             state.filters = initialFilters;
         },
-        setSelected(state, action: PayloadAction<ParticipantCard | null>) {
-            state.selected = action.payload;
+        selectParticipant(state, action: PayloadAction<number>) {
+            state.selectedId = action.payload;
+            state.selected = null;
+            state.selectedStatus = 'loading';
+            state.selectedError = null;
+            state.actionError = null;
+            state.cardRequestId = null;
         },
         clearSelected(state) {
+            state.selectedId = null;
+            state.cardRequestId = null;
             state.selected = null;
             state.selectedStatus = 'idle';
             state.selectedError = null;
@@ -457,38 +299,55 @@ export const adminSlice = createSlice({
             }
         },
         updateStatsFromSSE(state, action: PayloadAction<ParticipantStats>) {
+            state.statsRequestId = null;
             state.stats = action.payload;
         },
     },
     extraReducers: (builder) => {
 
-        builder.addCase(fetchParticipants.pending, (state) => {
-            state.listStatus = 'loading'
+        builder.addCase(fetchParticipants.pending, (state, action) => {
+            state.listRequestId = action.meta.requestId;
+            if (!state.participants.length) state.listStatus = 'loading'
             state.listError = null
         })
         builder.addCase(fetchParticipants.rejected, (state, action) => {
+            if (state.listRequestId !== action.meta.requestId) return;
+            state.listRequestId = null;
             state.listStatus = 'error'
             state.listError = action.payload ?? null;
         })
         builder.addCase(fetchParticipants.fulfilled, (state, action) => {
+            if (state.listRequestId !== action.meta.requestId) return;
+            state.listRequestId = null;
             state.listStatus = 'success'
             state.participants = action.payload.items;
             state.listTotal = action.payload.total;
         })
 
+        builder.addCase(fetchParticipantsStats.pending, (state, action) => {
+            state.statsRequestId = action.meta.requestId;
+        })
         builder.addCase(fetchParticipantsStats.fulfilled, (state, action) => {
+            if (state.statsRequestId !== action.meta.requestId) return;
+            state.statsRequestId = null;
             state.stats = action.payload;
         })
 
-        builder.addCase(fetchParticipantById.pending, (state) => {
-            state.selectedStatus = 'loading'
+        builder.addCase(fetchParticipantById.pending, (state, action) => {
+            if (state.selectedId !== action.meta.arg) return;
+            state.cardRequestId = action.meta.requestId;
+            if (!state.selected) state.selectedStatus = 'loading'
             state.selectedError = null
         })
         builder.addCase(fetchParticipantById.rejected, (state, action) => {
+            if (state.cardRequestId !== action.meta.requestId) return;
+            state.cardRequestId = null;
             state.selectedStatus = 'error'
             state.selectedError = action.payload ?? null;
         })
         builder.addCase(fetchParticipantById.fulfilled, (state, action) => {
+            if (state.cardRequestId !== action.meta.requestId) return;
+            state.cardRequestId = null;
             state.selectedStatus = 'success'
             state.selected = action.payload;
         })
@@ -503,15 +362,6 @@ export const adminSlice = createSlice({
         })
         builder.addCase(createParticipant.fulfilled, (state, action) => {
             state.actionStatus = 'success'
-            const participant = action.payload.participant;
-            state.participants.unshift({
-                id: participant.id,
-                flags: participant.flags.map(f => f.code),
-                status: participant.status,
-                organization: participant.organization,
-                full_name: `${participant.last_name} ${participant.first_name} ${participant.middle_name}`
-            })
-            state.listTotal += 1
         })
 
         builder.addCase(updateParticipant.pending, (state) => {
@@ -533,7 +383,7 @@ export const adminSlice = createSlice({
                     flags: updated.flags.map(f => f.code),
                     status: updated.status,
                     organization: updated.organization,
-                    full_name: `${updated.last_name} ${updated.first_name} ${updated.middle_name}`
+                    full_name: `${updated.last_name} ${updated.first_name} ${updated.middle_name ?? ''}`
                 }
             }
 
@@ -551,7 +401,7 @@ export const adminSlice = createSlice({
             state.actionError = action.payload ?? null;
         })
         builder.addCase(registerParticipantFromDesk.fulfilled, (state, action) => {
-            state.selectedStatus = 'success'
+            state.actionStatus = 'success'
             const {participant, print_job_id} = action.payload;
             state.lastPrintJobId = print_job_id
 
@@ -579,8 +429,16 @@ export const adminSlice = createSlice({
             state.printers = action.payload;
         });
 
-        builder.addCase(checkDuplicates.fulfilled, (state, action) => {
-
+        builder.addMatcher(isAnyOf(reprintSticker.pending, foreignCode.pending), state => {
+            state.actionStatus = 'loading';
+            state.actionError = null;
+        });
+        builder.addMatcher(isAnyOf(reprintSticker.fulfilled, foreignCode.fulfilled), state => {
+            state.actionStatus = 'success';
+        });
+        builder.addMatcher(isAnyOf(reprintSticker.rejected, foreignCode.rejected), (state, action) => {
+            state.actionStatus = 'error';
+            state.actionError = action.payload ?? null;
         });
 
     }
@@ -590,7 +448,7 @@ export const {
     clearActionError,
     updateParticipantFromSSE,
     resetFilters,
-    setSelected,
+    selectParticipant,
     updateStatsFromSSE,
     setFilters,
     clearSelected

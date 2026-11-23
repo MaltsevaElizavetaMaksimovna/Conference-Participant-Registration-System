@@ -4,19 +4,18 @@ import {useAppDispatch, useAppSelector} from "~/hooks/redux";
 import {scanCode} from "~/store/reducers/TerminalSlice";
 
 export const ScanFrame = () => {
-    const {active} = useAppSelector(state => state.conferenceReducer)
     const dispatch = useAppDispatch();
-    const {screen} = useAppSelector(state => state.terminalReducer);
+    const {screen, ping, connection} = useAppSelector(state => state.terminalReducer);
 
     const handleScanning = useCallback(async (result: IDetectedBarcode[]) => {
-        if (!result.length || screen !== 'idle' || !active) return
+        if (!result.length || screen !== 'idle' || connection !== 'online' || !ping?.conference) return
         const userCode = result[0].rawValue
         try {
             await dispatch(scanCode(userCode)).unwrap()
         } catch (e) {
             console.error(e);
         }
-    }, [dispatch, screen, active]);
+    }, [dispatch, screen, connection, ping?.conference]);
 
     return (
         <>

@@ -29,7 +29,7 @@ export class AdminService {
     }
 
     static async issueTerminalToken(id: number): Promise<AxiosResponse<TerminalTokenOut>> {
-        return adminApi.post<TerminalTokenOut>(`/admin/terminals/${id}/token`);
+        return adminApi.post<TerminalTokenOut>(`/admin/terminals/${id}/token`, undefined, {'axios-retry': {retries: 0}});
     }
 
     static async listPrinters(): Promise<AxiosResponse<PagePrinterAdminOut>> {
@@ -45,7 +45,7 @@ export class AdminService {
     }
 
     static async issuePrinterToken(id: number): Promise<AxiosResponse<PrinterTokenOut>> {
-        return adminApi.post<PrinterTokenOut>(`/admin/printers/${id}/token`);
+        return adminApi.post<PrinterTokenOut>(`/admin/printers/${id}/token`, undefined, {'axios-retry': {retries: 0}});
     }
 
     static async listUsers(): Promise<AxiosResponse<PageUserOut>> {

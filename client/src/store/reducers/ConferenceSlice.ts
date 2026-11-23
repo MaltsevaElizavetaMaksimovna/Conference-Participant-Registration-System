@@ -67,27 +67,10 @@ export const fetchActiveConference = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'conference/fetchActiveConference',
-    // async (_, {rejectWithValue}) => {
-    //     try {
-    //         const response = await ConferenceService.getActive()
-    //         return response.data
-    //     } catch (e) {
-    //         return rejectWithValue(parseError(e));
-    //     }
-    // }
     async (_, {rejectWithValue}) => {
         try {
-            // 🟢 МОК: Имитация задержки сети
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Возвращаем тестовую конференцию
-            return {
-                id: 1,
-                title: 'Тестовая конференция 2026',
-                date_from: '2026-11-20',
-                date_to: '2026-11-21',
-                badge_type: 'single',
-            };
+            const response = await ConferenceService.getActive()
+            return response.data
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
@@ -295,12 +278,9 @@ export const conferenceSlice = createSlice({
             state.activateStatus = 'success'
             const activated = action.payload
 
-            state.list.map((conf) => {
-                return {
-                    ...conf,
-                    is_active: conf.id === activated.id,
-                }
-            })
+            for (const conf of state.list) {
+                conf.is_active = conf.id === activated.id;
+            }
 
             state.active = {
                 id: activated.id,

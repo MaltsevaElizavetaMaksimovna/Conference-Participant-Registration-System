@@ -63,9 +63,9 @@ export const pingTerminal = createAsyncThunk<
     { rejectValue: Errors }
 >(
     'terminal/pingTerminal',
-    async (_, {rejectWithValue}) => {
+    async (_, {rejectWithValue, signal}) => {
         try {
-            const response = await TerminalService.ping()
+            const response = await TerminalService.ping(signal)
             return response.data
         } catch (e) {
             return rejectWithValue(parseError(e));
@@ -86,6 +86,13 @@ export const scanCode = createAsyncThunk<
         } catch (e) {
             return rejectWithValue(parseError(e));
         }
+    },
+    {
+        condition: (_, {getState}) => {
+            const {connection, ping, screen} = (getState() as {terminalReducer: TerminalState}).terminalReducer;
+            return connection === 'online' && !!ping?.conference &&
+                (screen === 'idle' || screen === 'success' || screen === 'error');
+        },
     }
 )
 
@@ -141,9 +148,8 @@ export const terminalSlice = createSlice({
     name: 'terminal',
     initialState,
     reducers: {
-        terminalMounted() {
-
-        },
+        terminalMounted() {},
+        terminalUnmounted() {},
         resetToIdle(state) {
             state.screen = 'idle';
             state.message = null;
@@ -182,6 +188,7 @@ export const terminalSlice = createSlice({
     extraReducers: (builder) => {
 
         builder.addCase(pingTerminal.rejected, (state, action) => {
+            if (action.meta.aborted) return;
             state.pingFailures += 1;
             const code = action.payload?.code;
 
@@ -201,6 +208,10 @@ export const terminalSlice = createSlice({
 
         builder.addCase(scanCode.pending, (state) => {
             state.screen = 'scanning'
+            state.scanId = null
+            state.participant = null
+            state.printJobId = null
+            state.message = null
             state.error = null
         })
         builder.addCase(scanCode.rejected, (state, action) => {
@@ -284,7 +295,8 @@ export const {
     showResult,
     showConfirmScreen,
     clearError,
-    terminalMounted
+    terminalMounted,
+    terminalUnmounted
 } = terminalSlice.actions
 
 export const terminalReducer = terminalSlice.reducer;
