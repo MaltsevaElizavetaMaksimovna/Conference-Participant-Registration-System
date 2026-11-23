@@ -1,5 +1,7 @@
 name: regsys-prod
 
+x-database-url: &database-url postgresql+psycopg://regsys:${POSTGRES_PASSWORD_URI:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}@db:5432/regsys
+
 services:
   db:
     image: postgres:16
@@ -24,7 +26,7 @@ services:
     restart: unless-stopped
     environment:
       RS_ENV: prod
-      RS_DATABASE_URL: postgresql+psycopg://regsys:${POSTGRES_PASSWORD_URI:-${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}}@db:5432/regsys
+      RS_DATABASE_URL: *database-url
       RS_SECRET_KEY: ${RS_SECRET_KEY:?Set RS_SECRET_KEY}
       RS_PUBLIC_BASE_URL: https://${RS_PUBLIC_HOST:?Set RS_PUBLIC_HOST}
       RS_CORS_ORIGINS: https://${RS_PUBLIC_HOST:?Set RS_PUBLIC_HOST}
@@ -49,6 +51,23 @@ services:
     networks:
       - backend
       - proxy_api
+
+  backup:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backup
+    restart: unless-stopped
+    environment:
+      RS_DATABASE_URL: *database-url
+      RS_PHOTO_DIR: /home/app/photos
+      RS_BACKUP_DIR: /home/app/backups
+    volumes:
+      - appdata:/home/app
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - backend
 
   edge:
     build:
