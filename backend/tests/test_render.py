@@ -6,10 +6,11 @@ from decimal import Decimal
 
 import pytest
 import segno
-from PIL import Image, ImageChops, ImageOps
+from PIL import Image, ImageChops, ImageFont, ImageOps
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.badges.render.data import LabelData, label_data, profile_url
+from app.badges.render.fonts import font
 from app.badges.render.label import DPI, Overflow, dots, render_label
 from app.badges.render.select import template_ids, templates_for
 from app.badges.render.text_fit import fit_text, tokens
@@ -96,6 +97,11 @@ def test_render_dimensions_and_mode() -> None:
     res_90 = render_label(T90X50, DATA)
     assert res_90.image.size == (719, 400)
     assert res_90.image.mode == "1"
+
+
+def test_font_layout_is_independent_of_raqm(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ImageFont.core, "HAVE_RAQM", True)
+    assert font(26.5, bold=True, dpi=225).layout_engine == ImageFont.Layout.BASIC
 
 
 def test_render_snapshots_match() -> None:
