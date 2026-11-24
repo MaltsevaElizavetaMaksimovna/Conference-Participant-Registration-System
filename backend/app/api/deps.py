@@ -4,8 +4,8 @@
 (`auto_error=False`: ошибки отдают сами зависимости в едином формате).
 
 Терминал и агент печати проверяются по-настоящему (`app.terminals.deps`, B2-01).
-TODO B1-01: сессия сотрудника (cookie `rs_session`), проверка разрешений и CSRF-заголовка;
-сейчас `staff()` только описывает схему в OpenAPI.
+Сессия сотрудника — cookie `rs_session` (`app.auth.deps`), вместе с проверкой разрешений
+и CSRF-заголовка.
 """
 
 from collections.abc import Sequence

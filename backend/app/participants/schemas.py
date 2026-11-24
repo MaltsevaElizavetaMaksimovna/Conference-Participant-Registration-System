@@ -5,7 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-# TODO: заменить на общие enum (app/core/enums.py)
+# Значения совпадают с `app.core.enums.ParticipantStatus`; в API оставлены Literal,
+# чтобы OpenAPI показывал enum строкой и клиент не зависел от python-enum.
 ParticipantStatus = Literal["not_registered", "registered", "registered_no_sticker"]
 ParticipantFlag = Literal[
     "error_reported", "sticker_not_printed", "data_changed", "manual_added", "foreign_code"

@@ -1,7 +1,4 @@
-"""Участники: список, поиск, счётчик, карточка, фото, правка, добавление (B1-09..B1-13).
-
-`sample_card` и данные заглушек ниже нужны заглушкам регистрации со стойки (`registration.router`).
-"""
+"""Участники: список, поиск, счётчик, карточка, фото, правка, добавление (B1-09..B1-13)."""
 
 from typing import Annotated
 
@@ -11,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.common import Limit, Offset, Page, err
 from app.api.deps import staff
-from app.api.stubs import T0
 from app.auth.deps import CurrentStaff, get_current_staff
 from app.badges.service import resolve_photo
 from app.core.db import get_session
@@ -21,11 +17,6 @@ from app.participants import card as cards
 from app.participants.schemas import (
     CheckDuplicatesIn,
     DuplicatesOut,
-    EventItem,
-    ExtraField,
-    FlagInfo,
-    HistoryItem,
-    ParticipantActions,
     ParticipantCard,
     ParticipantCreatedOut,
     ParticipantCreateIn,
@@ -34,112 +25,9 @@ from app.participants.schemas import (
     ParticipantSort,
     ParticipantStats,
     ParticipantUpdateIn,
-    RegistrationInfo,
 )
 
 router = APIRouter(prefix="/participants", tags=["participants"])
-
-# Фиксированные участники заглушек: 17 — зарегистрирован, 18 — нет, 19 — без наклейки.
-SAMPLE_IDS = (17, 18, 19)
-
-_SHORT = [
-    ParticipantShort(
-        id=17,
-        full_name="Иванов Пётр Сергеевич",
-        organization="ООО Ромашка",
-        status="registered",
-        flags=["data_changed"],
-    ),
-    ParticipantShort(
-        id=18,
-        full_name="Петрова Анна Ивановна",
-        organization="АО Василёк",
-        status="not_registered",
-        flags=[],
-    ),
-    ParticipantShort(
-        id=19,
-        full_name="Сидоров Олег Николаевич",
-        organization=None,
-        status="registered_no_sticker",
-        flags=["sticker_not_printed"],
-    ),
-]
-
-REGISTERED_AT_TEXT = "20.11 09:15, Терминал 2"
-
-
-def sample_short(participant_id: int) -> ParticipantShort:
-    for p in _SHORT:
-        if p.id == participant_id:
-            return p
-    raise AppError("participant_not_found", "Участник не найден", 404)
-
-
-def sample_card(participant_id: int) -> ParticipantCard:
-    """Карточка заглушки; 404 `participant_not_found` для id вне (17, 18, 19)."""
-    short = sample_short(participant_id)
-    last, first, middle = short.full_name.split(" ")
-    registered = short.status != "not_registered"
-    registration = (
-        RegistrationInfo(at=T0, source="terminal", terminal_name="Терминал 2", user_login=None)
-        if registered
-        else None
-    )
-    flags = [FlagInfo(code=code, at=T0, by=None) for code in short.flags]
-    return ParticipantCard(
-        id=short.id,
-        external_id=f"B24-{1000 + short.id - 16}",
-        last_name=last,
-        first_name=first,
-        middle_name=middle,
-        position="Инженер" if short.id == 17 else None,
-        organization=short.organization,
-        extra=[ExtraField(key="section", label="Секция", value="A")],
-        status=short.status,
-        registration=registration,
-        flags=flags,
-        photo_url=f"/api/participants/{short.id}/photo" if short.id != 19 else None,
-        profile_url=f"https://reg.example.ru/p/stub-token-{short.id}" if registered else None,
-        print_count=1 if short.status == "registered" else 0,
-        rescan_count=2 if registered else 0,
-        history=(
-            [
-                HistoryItem(
-                    field="organization",
-                    old="Ромашка",
-                    new="ООО Ромашка",
-                    source="manual",
-                    user_login="reg1",
-                    at=T0.replace(minute=0),
-                )
-            ]
-            if short.id == 17
-            else []
-        ),
-        events=(
-            [
-                EventItem(type="registered", at=T0, terminal_name="Терминал 2", user_login=None),
-                EventItem(
-                    type="scan_rescan",
-                    at=T0.replace(minute=30),
-                    terminal_name="Терминал 1",
-                    user_login=None,
-                ),
-            ]
-            if registered
-            else []
-        ),
-        actions=ParticipantActions(
-            can_register=not registered,
-            can_reprint=registered,
-            can_edit=True,
-            can_foreign_code=True,
-            reasons={"can_register": f"Уже зарегистрирован {REGISTERED_AT_TEXT}"}
-            if registered
-            else {"can_reprint": "Сначала зарегистрируйте участника"},
-        ),
-    )
 
 
 @router.get(
