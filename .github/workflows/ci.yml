@@ -63,6 +63,33 @@ jobs:
       - run: npm exec -- tsc --noEmit
       - run: npm run build
 
+  agent:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/pyproject.toml
+      - run: pip install -e ".[dev]" pyinstaller
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy regsys_agent
+      - run: python -m pytest -q
+      - name: Собрать regsys-agent.exe
+        run: python -m PyInstaller --noconfirm --onefile --name regsys-agent --console regsys_agent/__main__.py
+      - name: Проверить запуск EXE
+        run: .\dist\regsys-agent.exe --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: regsys-agent-windows
+          path: agent/dist/regsys-agent.exe
+          if-no-files-found: error
+
   backup-delivery:
     runs-on: ubuntu-24.04
     env:
