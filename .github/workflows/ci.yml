@@ -90,6 +90,30 @@ jobs:
           path: agent/dist/regsys-agent.exe
           if-no-files-found: error
 
+  deploy:
+    runs-on: ubuntu-24.04
+    env:
+      POSTGRES_PASSWORD: deploy_ci_only_password
+      RS_SECRET_KEY: deploy_ci_only_secret
+      RS_PUBLIC_HOST: regsys-ci.example.test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить production compose
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - name: Собрать образ edge
+        run: docker compose -f docker-compose.prod.yml build edge
+      - name: Проверить Caddyfile без предупреждений
+        run: |
+          set -o pipefail
+          out=$(docker compose -f docker-compose.prod.yml run --rm --no-deps edge \
+            validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || {
+            echo "$out"; exit 1; }
+          echo "$out"
+          grep -q 'Valid configuration' <<<"$out"
+          if grep -q 'No files matching import glob pattern' <<<"$out"; then
+            echo 'Caddy: пустой glob kiosks/sites/*.caddy'; exit 1
+          fi
+
   backup-delivery:
     runs-on: ubuntu-24.04
     env:

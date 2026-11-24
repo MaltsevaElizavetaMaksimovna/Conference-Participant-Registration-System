@@ -32,6 +32,7 @@ services:
       RS_CORS_ORIGINS: https://${RS_PUBLIC_HOST:?Set RS_PUBLIC_HOST}
       RS_PHOTO_DIR: /home/app/photos
       RS_BACKUP_DIR: /home/app/backups
+      RS_TIMEZONE: ${RS_TIMEZONE:-Asia/Tomsk}
     command:
       - uvicorn
       - app.main:app

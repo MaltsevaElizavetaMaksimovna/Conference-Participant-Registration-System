@@ -9,3 +9,11 @@ RUN npm run build
 
 FROM caddy:2.11.9-alpine
 COPY --from=build /app/dist/ /srv/regsys/
+
+# Каталог киосков создаётся заранее: иначе Caddy пишет при старте
+# «No files matching import glob pattern» для kiosks/sites/*.caddy.
+# При подключении киоска каталог /etc/caddy/kiosks перекрывается монтированием
+# RS_KIOSK_CONFIG_DIR (docker-compose.kiosk.yml), и заглушка не участвует.
+RUN mkdir -p /etc/caddy/kiosks/sites /etc/caddy/kiosks/trust /etc/caddy/kiosks/secrets \
+    && printf '# Заглушка: файлы киосков монтируются из RS_KIOSK_CONFIG_DIR.\n' \
+        > /etc/caddy/kiosks/sites/00-empty.caddy
