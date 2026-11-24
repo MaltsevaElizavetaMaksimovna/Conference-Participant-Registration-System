@@ -75,7 +75,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: agent/pyproject.toml
-      - run: pip install -e ".[dev]" pyinstaller
+      - run: pip install -e ".[dev]" pyinstaller ruff mypy
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy regsys_agent
@@ -106,7 +106,7 @@ jobs:
         run: |
           set -o pipefail
           out=$(docker compose -f docker-compose.prod.yml run --rm --no-deps edge \
-            validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || {
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || {
             echo "$out"; exit 1; }
           echo "$out"
           grep -q 'Valid configuration' <<<"$out"
