@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from ssl import SSLContext
@@ -120,3 +123,16 @@ def test_malformed_config_does_not_print_its_contents(
     config.write_text("[agent]\nsynthetic-secret\n", encoding="utf-8")
     assert main(["--config", str(config)]) == 2
     assert "synthetic-secret" not in capsys.readouterr().err
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Кодировка перенаправленного вывода Windows")
+def test_help_with_windows_ansi_stdout() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "regsys_agent", "--help"],
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert "Агент печати наклеек" in result.stdout.decode("utf-8")

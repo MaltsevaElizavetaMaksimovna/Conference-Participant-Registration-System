@@ -9,6 +9,7 @@ import signal
 import ssl
 import sys
 import threading
+from io import TextIOWrapper
 from pathlib import Path
 from typing import Any
 
@@ -149,4 +150,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            if isinstance(stream, TextIOWrapper) and not stream.isatty():
+                stream.reconfigure(encoding="utf-8")
     sys.exit(main())
