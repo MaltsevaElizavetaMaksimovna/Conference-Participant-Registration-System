@@ -18,7 +18,10 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'Aludra568' &&
+      github.triggering_actor == 'Aludra568'
     runs-on: ubuntu-24.04
     outputs:
       commit: ${{ steps.tag.outputs.commit }}
@@ -69,6 +72,9 @@ jobs:
 
   publish:
     needs: build
+    if: >-
+      github.actor == 'Aludra568' &&
+      github.triggering_actor == 'Aludra568'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
