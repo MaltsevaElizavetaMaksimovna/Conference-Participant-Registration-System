@@ -33,8 +33,10 @@ class UpdateError(Exception):
 
 
 def run(label, *args, timeout=180):
-    env = os.environ.copy()
-    env.pop("REGSYS_GITHUB_TOKEN", None)
+    env = {
+        key: value for key, value in os.environ.items()
+        if key != "REGSYS_GITHUB_TOKEN" and not key.startswith("REGSYS_SMTP_")
+    }
     try:
         result = subprocess.run(
             args, capture_output=True, check=True, text=True, timeout=timeout, env=env
@@ -157,6 +159,7 @@ class Compose:
         if not name or not re.fullmatch(r"regsys-\d{8}-\d{6}\.dump", name[0]):
             raise UpdateError("New verified backup was not reported")
         print(f"Verified backup: {name[0]}", flush=True)
+        return name[0]
 
     def restart(self):
         self.stop_writers()

@@ -46,7 +46,7 @@ jobs:
           echo "RELEASE_COMMIT=$commit" >> "$GITHUB_ENV"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
       - name: Check updater contract
-        run: python -B -m unittest discover -s deploy/autoupdate -p test_update.py
+        run: python -B -m unittest discover -s deploy/autoupdate -p 'test_*.py'
       - name: Build and package server images
         env:
           TAG: ${{ inputs.tag }}
@@ -64,6 +64,7 @@ jobs:
           docker save -o "$RUNNER_TEMP/images.tar" "${images[@]}"
           python deploy/autoupdate/release_bundle.py "$TAG" "$RELEASE_COMMIT" \
             "$RUNNER_TEMP/images.tar" "$RUNNER_TEMP/regsys-linux-amd64.tar.gz"
+          sha256sum "$RUNNER_TEMP/regsys-linux-amd64.tar.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: server-release

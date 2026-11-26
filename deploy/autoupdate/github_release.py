@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from release_bundle import ASSET, MAX_ASSET_SIZE, version
+from release_signature import SIGNATURE, SIGNATURE_SIZE
 
 
 class GitHubRedirect(HTTPRedirectHandler):
@@ -34,7 +35,7 @@ class GitHubRelease:
             request.add_unredirected_header("Authorization", f"Bearer {self.token}")
         return self.opener.open(request, timeout=30)
 
-    def latest(self, installed, blocked):
+    def latest(self, installed, blocked, *, require_signature=False):
         with self.request("/latest", "application/vnd.github+json") as response:
             release = json.loads(response.read(1_000_000))
         if release["draft"] or release["prerelease"]:
@@ -51,16 +52,29 @@ class GitHubRelease:
         if len(assets) != 1:
             raise ValueError("Expected exactly one server release asset")
         asset = assets[0]
+        self.validate_asset(asset, MAX_ASSET_SIZE)
+        if require_signature:
+            signatures = [entry for entry in release["assets"] if entry["name"] == SIGNATURE]
+            if not signatures:
+                print(f"Waiting for release signature: {tag}", flush=True)
+                return None
+            if len(signatures) != 1 or signatures[0]["size"] != SIGNATURE_SIZE:
+                raise ValueError("Expected exactly one Ed25519 release signature")
+            self.validate_asset(signatures[0], SIGNATURE_SIZE)
+            asset = {**asset, "signature": signatures[0]}
+        return tag, asset
+
+    @staticmethod
+    def validate_asset(asset, size_limit):
         if (
             type(asset["id"]) is not int
             or asset["id"] <= 0
             or asset["state"] != "uploaded"
             or type(asset["size"]) is not int
-            or not 0 < asset["size"] <= MAX_ASSET_SIZE
+            or not 0 < asset["size"] <= size_limit
             or not re.fullmatch(r"sha256:[0-9a-f]{64}", asset.get("digest") or "")
         ):
             raise ValueError("Invalid release asset metadata")
-        return tag, asset
 
     def download(self, asset, target):
         digest = hashlib.sha256()
