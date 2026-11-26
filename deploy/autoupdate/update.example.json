@@ -1,0 +1,9 @@
+{
+  "repository": "MaltsevaElizavetaMaksimovna/Conference-Participant-Registration-System",
+  "initial_dir": "/path/to/current/regsys",
+  "initial_version": "v0.0.0",
+  "env_file": "/path/to/current/regsys/.env.prod",
+  "state_dir": "/var/lib/regsys-update",
+  "overlays": [],
+  "maintenance": null
+}

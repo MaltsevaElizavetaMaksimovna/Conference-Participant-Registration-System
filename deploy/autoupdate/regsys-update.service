@@ -1,0 +1,13 @@
+[Unit]
+Description=Check and install a RegistrationSystem server release
+Wants=network-online.target
+Requires=docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/regsys/update-token.env
+ExecStart=/usr/bin/python3 -B /opt/regsys-updater/update.py --config /etc/regsys/update.json
+TimeoutStartSec=2h
+UMask=0077
+NoNewPrivileges=yes

@@ -1,0 +1,89 @@
+name: Server release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable tag (vMAJOR.MINOR.PATCH) on a commit with successful main CI
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: regsys-server-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.tag.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tag and CI
+        id: tag
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]
+          commit=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          git merge-base --is-ancestor "$commit" HEAD
+          passed=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f branch=main -f event=push -f head_sha="$commit" -f status=success --jq '.total_count')
+          [[ "$passed" -gt 0 ]]
+          git checkout --detach "$commit"
+          echo "RELEASE_COMMIT=$commit" >> "$GITHUB_ENV"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - name: Check updater contract
+        run: python -B -m unittest discover -s deploy/autoupdate -p test_update.py
+      - name: Build and package server images
+        env:
+          TAG: ${{ inputs.tag }}
+          POSTGRES_PASSWORD: release-build-only
+          RS_SECRET_KEY: release-build-only
+          RS_PUBLIC_HOST: release.example.test
+        run: |
+          images=()
+          for service in api backup edge; do
+            images+=("regsys/$service:$TAG")
+          done
+          printf 'services:\n  api:\n    image: %s\n  backup:\n    image: %s\n  edge:\n    image: %s\n' \
+            "${images[@]}" > "$RUNNER_TEMP/release-images.yml"
+          docker compose -f docker-compose.prod.yml -f "$RUNNER_TEMP/release-images.yml" build api backup edge
+          docker save -o "$RUNNER_TEMP/images.tar" "${images[@]}"
+          python deploy/autoupdate/release_bundle.py "$TAG" "$RELEASE_COMMIT" \
+            "$RUNNER_TEMP/images.tar" "$RUNNER_TEMP/regsys-linux-amd64.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-release
+          path: ${{ runner.temp }}/regsys-linux-amd64.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-release
+      - name: Publish complete stable release
+        env:
+          TAG: ${{ inputs.tag }}
+          BUILT_COMMIT: ${{ needs.build.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha')" == "$BUILT_COMMIT" ]]
+          gh release create "$TAG" regsys-linux-amd64.tar.gz --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft --title "$TAG"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
